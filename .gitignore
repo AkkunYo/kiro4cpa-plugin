@@ -1,0 +1,23 @@
+# Build output (shared libraries and cgo headers)
+bin/
+*.so
+*.dylib
+*.dll
+*.h
+
+# Test and coverage artifacts
+*.test
+*.out
+*.cov
+coverage.*
+
+# Local credentials must never be committed
+*.json.bak*
+credentials*.json
+kiro*.json
+!testdata/**
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
