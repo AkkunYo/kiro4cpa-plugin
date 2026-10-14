@@ -124,6 +124,9 @@ func HandleMethod(method string, request []byte) ([]byte, error) {
 	case pluginabi.MethodExecutorExecute:
 		return handleExecute(request)
 
+	case pluginabi.MethodExecutorExecuteStream:
+		return handleExecuteStream(request)
+
 	case pluginabi.MethodExecutorCountTokens:
 		return handleCountTokens(request)
 

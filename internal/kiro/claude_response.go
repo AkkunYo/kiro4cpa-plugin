@@ -96,15 +96,15 @@ func (c *responseCollector) message(conv convertedRequest) []byte {
 	out, _ := json.Marshal(map[string]any{
 		"id": "msg_" + strings.ReplaceAll(newUUID(), "-", ""), "type": "message", "role": "assistant",
 		"model": conv.ModelID, "content": content, "stop_reason": stop, "stop_sequence": nil,
-		"usage": c.claudeUsage(conv, estimateTokens(text+thinking)),
+		"usage": usageFields(c.usage, conv.InputTokens, estimateTokens(text+thinking)),
 	})
 	return out
 }
 
-// claudeUsage prefers Kiro's real token counts; input_tokens excludes cached
+// usageFields prefers Kiro's real token counts; input_tokens excludes cached
 // tokens, matching Anthropic's usage semantics.
-func (c *responseCollector) claudeUsage(conv convertedRequest, estimatedOutput int) map[string]int64 {
-	if u := c.usage; u != nil {
+func usageFields(u *TokenUsage, estimatedInput, estimatedOutput int) map[string]int64 {
+	if u != nil {
 		return map[string]int64{
 			"input_tokens":                max(u.UncachedInputTokens, 0),
 			"output_tokens":               max(u.OutputTokens, 0),
@@ -112,5 +112,5 @@ func (c *responseCollector) claudeUsage(conv convertedRequest, estimatedOutput i
 			"cache_creation_input_tokens": max(u.CacheWriteInputTokens, 0),
 		}
 	}
-	return map[string]int64{"input_tokens": int64(conv.InputTokens), "output_tokens": int64(estimatedOutput)}
+	return map[string]int64{"input_tokens": int64(estimatedInput), "output_tokens": int64(estimatedOutput)}
 }

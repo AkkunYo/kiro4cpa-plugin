@@ -21,23 +21,42 @@ type executorRPC struct {
 	HostCallbackID string `json:"host_callback_id,omitempty"`
 }
 
-// hostAuthSave is swapped in tests.
-var hostAuthSave = hostapi.AuthSave
+// Host callbacks are swapped in tests.
+var (
+	hostAuthSave      = hostapi.AuthSave
+	hostHTTPDoStream  = hostapi.HTTPDoStream
+	hostStreamRead    = hostapi.HTTPStreamRead
+	hostHTTPStreamEnd = hostapi.HTTPStreamClose
+	hostStreamEmit    = hostapi.StreamEmit
+	hostStreamClose   = hostapi.StreamClose
+)
 
-func handleExecute(request []byte) ([]byte, error) {
+// prepareExecution decodes the credential and the Claude payload; a non-nil
+// envelope is the error answer to return as-is.
+func prepareExecution(request []byte) (executorRPC, Credential, convertedRequest, []byte, error) {
 	var req executorRPC
 	if err := json.Unmarshal(request, &req); err != nil {
-		return nil, err
+		return req, Credential{}, convertedRequest{}, nil, err
 	}
 	cred, _, err := decodeCredential(req.StorageJSON)
 	if err != nil {
-		return wire.ErrorStatus("invalid_credential", err.Error(), http.StatusUnauthorized, false), nil
+		return req, cred, convertedRequest{}, wire.ErrorStatus("invalid_credential", err.Error(), http.StatusUnauthorized, false), nil
 	}
 	conv, err := convertClaudeRequest(req.Payload, cred)
 	if err != nil {
-		return wire.ErrorStatus("invalid_request", err.Error(), http.StatusBadRequest, false), nil
+		return req, cred, conv, wire.ErrorStatus("invalid_request", err.Error(), http.StatusBadRequest, false), nil
 	}
-	resp, err := sendWithRefresh(req, cred, conv)
+	return req, cred, conv, nil, nil
+}
+
+func handleExecute(request []byte) ([]byte, error) {
+	req, cred, conv, errEnv, err := prepareExecution(request)
+	if err != nil || errEnv != nil {
+		return errEnv, err
+	}
+	resp, err := withRefresh(req, cred, func(c Credential) (*hostapi.HTTPResponse, error) {
+		return postGenerate(req.HostCallbackID, c, conv, config.Get())
+	})
 	if err != nil {
 		return upstreamErrorEnvelope(err), nil
 	}
@@ -68,39 +87,46 @@ func handleCountTokens(request []byte) ([]byte, error) {
 	return wire.OK(pluginapi.ExecutorResponse{Payload: payload}), nil
 }
 
-// sendWithRefresh posts to Kiro and, when the bearer token is rejected, forces one
-// refresh and retries. CPA only cools a 401'd credential down, so without this a
+// withRefresh runs send and, when the bearer token is rejected, forces one refresh
+// and retries. CPA only cools a 401'd credential down, so without this a
 // single-account setup would be unusable until the next scheduled refresh.
-func sendWithRefresh(req executorRPC, cred Credential, conv convertedRequest) (*hostapi.HTTPResponse, error) {
-	cfg := config.Get()
-	resp, err := postGenerate(req.HostCallbackID, cred, conv, cfg)
+func withRefresh[T any](req executorRPC, cred Credential, send func(Credential) (T, error)) (T, error) {
+	resp, err := send(cred)
 	var up *UpstreamError
 	if !errors.As(err, &up) || up.Kind != ErrTokenInvalid || cred.AuthMethod == AuthMethodAPIKey {
 		return resp, err
 	}
-	refreshed, errRefresh := refreshCredential(cred, cfg, req.HostCallbackID, time.Now())
+	refreshed, errRefresh := refreshCredential(cred, config.Get(), req.HostCallbackID, time.Now())
 	if errRefresh != nil {
-		return nil, err
+		return resp, err
 	}
 	persistCredential(req, refreshed)
-	return postGenerate(req.HostCallbackID, refreshed, conv, cfg)
+	return send(refreshed)
 }
 
-func postGenerate(callbackID string, cred Credential, conv convertedRequest, cfg config.PluginConfig) (*hostapi.HTTPResponse, error) {
+func generateRequest(callbackID string, cred Credential, conv convertedRequest, cfg config.PluginConfig) (hostapi.HTTPRequest, error) {
 	url, err := generateURL(cred, cfg)
 	if err != nil {
-		return nil, err
+		return hostapi.HTTPRequest{}, err
 	}
 	payload := conv.Payload
 	payload.ProfileArn = streamingProfileARN(cred)
 	body, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return hostapi.HTTPRequest{}, err
 	}
-	resp, err := hostHTTPDo(hostapi.HTTPRequest{
+	return hostapi.HTTPRequest{
 		HostCallbackID: callbackID, Method: http.MethodPost, URL: url,
 		Headers: streamHeaders(cred, cfg), Body: body,
-	})
+	}, nil
+}
+
+func postGenerate(callbackID string, cred Credential, conv convertedRequest, cfg config.PluginConfig) (*hostapi.HTTPResponse, error) {
+	httpReq, err := generateRequest(callbackID, cred, conv, cfg)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := hostHTTPDo(httpReq)
 	if err != nil {
 		return nil, fmt.Errorf("kiro request: %w", err)
 	}

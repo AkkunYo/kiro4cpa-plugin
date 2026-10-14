@@ -93,13 +93,13 @@ func HTTPDoStream(req HTTPRequest) (*HTTPStreamResponse, error) {
 	return &resp, nil
 }
 
-func StreamRead(streamID string) (StreamChunk, error) {
+func HTTPStreamRead(streamID string) (StreamChunk, error) {
 	var chunk StreamChunk
 	err := callJSON(pluginabi.MethodHostHTTPStreamRead, streamRef{StreamID: streamID}, &chunk)
 	return chunk, err
 }
 
-func StreamClose(streamID string) error {
+func HTTPStreamClose(streamID string) error {
 	return callJSON(pluginabi.MethodHostHTTPStreamClose, streamRef{StreamID: streamID}, nil)
 }
 
@@ -111,4 +111,20 @@ type authSaveRequest struct {
 // AuthSave persists credential JSON to an auth file through the host.
 func AuthSave(name string, raw []byte) error {
 	return callJSON(pluginabi.MethodHostAuthSave, authSaveRequest{Name: name, JSON: raw}, nil)
+}
+
+type streamEmitRequest struct {
+	StreamID string `json:"stream_id"`
+	Payload  []byte `json:"payload,omitempty"`
+	Error    string `json:"error,omitempty"`
+}
+
+// StreamEmit pushes one executor output chunk to CPA.
+func StreamEmit(streamID string, payload []byte) error {
+	return callJSON(pluginabi.MethodHostStreamEmit, streamEmitRequest{StreamID: streamID, Payload: payload}, nil)
+}
+
+// StreamClose ends executor output; a non-empty errMsg reports a failed stream.
+func StreamClose(streamID, errMsg string) error {
+	return callJSON(pluginabi.MethodHostStreamClose, streamEmitRequest{StreamID: streamID, Error: errMsg}, nil)
 }
