@@ -115,6 +115,7 @@ func TestExecuteMapsUpstreamErrors(t *testing.T) {
 	}{
 		{429, "slow", 429, false},
 		{402, `{"reason":"MONTHLY_REQUEST_COUNT"}`, 402, false},
+		{403, "User is not authorized", 403, false},
 		{400, "INVALID_MODEL_ID", 400, false},
 		{503, "down", 502, true},
 	}
@@ -140,6 +141,53 @@ func TestExecuteStreamExceptionWithoutContentIsRetryable(t *testing.T) {
 	out, _ := HandleMethod(pluginabi.MethodExecutorExecute, raw)
 	if env := decodeEnvelope(t, out); env.OK || env.Error.HTTPStatus != 502 || !env.Error.Retryable {
 		t.Fatalf("env %s", out)
+	}
+}
+
+func TestExecuteNonStreamExceptionAfterContentFails(t *testing.T) {
+	stubHTTP(t, func(hostapi.HTTPRequest) (*hostapi.HTTPResponse, error) {
+		return &hostapi.HTTPResponse{StatusCode: 200, Body: kiroBody(
+			eventFrame("assistantResponseEvent", `{"content":"partial"}`),
+			encodeFrame(map[string]string{":message-type": "exception", ":exception-type": "InternalServerException"}, []byte("boom")),
+		)}, nil
+	})
+	raw, _ := json.Marshal(execRequest(pingRequest))
+	out, _ := HandleMethod(pluginabi.MethodExecutorExecute, raw)
+	if env := decodeEnvelope(t, out); env.OK || env.Error.HTTPStatus != 502 {
+		t.Fatalf("truncated answer must not look complete: %s", out)
+	}
+}
+
+func TestExecuteNonStreamStopReasons(t *testing.T) {
+	cases := []struct {
+		name   string
+		frames []byte
+		want   string
+	}{
+		{"context full", kiroBody(eventFrame("assistantResponseEvent", `{"content":"x"}`),
+			eventFrame("contextUsageEvent", `{"contextUsagePercentage":100}`)), "model_context_window_exceeded"},
+		{"thinking only", eventFrame("reasoningContentEvent", `{"text":"plan"}`), "max_tokens"},
+	}
+	for _, tc := range cases {
+		stubHTTP(t, func(hostapi.HTTPRequest) (*hostapi.HTTPResponse, error) {
+			return &hostapi.HTTPResponse{StatusCode: 200, Body: tc.frames}, nil
+		})
+		resp := callHandler[pluginapi.ExecutorResponse](t, pluginabi.MethodExecutorExecute, execRequest(toolRequest))
+		var msg struct {
+			StopReason string `json:"stop_reason"`
+		}
+		if err := json.Unmarshal(resp.Payload, &msg); err != nil || msg.StopReason != tc.want {
+			t.Errorf("%s: %s", tc.name, resp.Payload)
+		}
+	}
+}
+
+func TestHandleMethodRecoversPanic(t *testing.T) {
+	stubHTTP(t, func(hostapi.HTTPRequest) (*hostapi.HTTPResponse, error) { panic("boom") })
+	raw, _ := json.Marshal(execRequest(pingRequest))
+	out, err := HandleMethod(pluginabi.MethodExecutorExecute, raw)
+	if err == nil || out != nil || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("out=%s err=%v", out, err)
 	}
 }
 

@@ -79,8 +79,12 @@ func pumpStream(upstream, streamID string, conv convertedRequest) {
 	var dec Decoder
 	for {
 		chunk, err := hostStreamRead(upstream)
-		if err != nil || chunk.Error != "" {
-			finish(fmt.Sprintf("kiro stream read failed: %v%s", err, chunk.Error))
+		if err != nil {
+			finish("kiro stream read failed: " + err.Error())
+			return
+		}
+		if chunk.Error != "" {
+			finish("kiro stream read failed: " + chunk.Error)
 			return
 		}
 		for _, f := range dec.Feed(chunk.Payload) {
@@ -89,7 +93,11 @@ func pumpStream(upstream, streamID string, conv convertedRequest) {
 				continue
 			}
 			events := sse.handle(ev)
-			if se := sse.failedBeforeContent(); se != nil {
+			// A later in-band error also ends the stream: CPA appends an error
+			// after the content already sent, so a truncated answer never ends
+			// with a clean message_stop.
+			if se := sse.streamErr; se != nil {
+				log.Printf("kiro4cpa: upstream stream error: %v", se)
 				finish(se.Error())
 				return
 			}

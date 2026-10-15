@@ -56,7 +56,6 @@ func getRegistration() registration {
 			GitHubRepository: "https://github.com/AkkunYo/kiro4cpa-plugin",
 			ConfigFields: []pluginapi.ConfigField{
 				{Name: "enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "Enable Kiro plugin"},
-				{Name: "default_endpoint", Type: pluginapi.ConfigFieldTypeString, Description: "Default endpoint (ide or cli)"},
 				{Name: "default_region", Type: pluginapi.ConfigFieldTypeString, Description: "Default AWS Region"},
 				{Name: "client_version", Type: pluginapi.ConfigFieldTypeString, Description: "Kiro IDE version reported in User-Agent"},
 				{Name: "os_version", Type: pluginapi.ConfigFieldTypeString, Description: "OS reported in User-Agent, e.g. darwin#24.6.0"},
@@ -78,7 +77,14 @@ func getRegistration() registration {
 }
 
 // HandleMethod handles incoming C-ABI RPC calls from CLIProxyAPI.
-func HandleMethod(method string, request []byte) ([]byte, error) {
+func HandleMethod(method string, request []byte) (out []byte, err error) {
+	defer func() {
+		// A panic crossing the C-ABI would take down the whole CPA process.
+		if r := recover(); r != nil {
+			log.Printf("kiro4cpa: %s panic: %v", method, r)
+			out, err = nil, fmt.Errorf("kiro4cpa internal error in %s: %v", method, r)
+		}
+	}()
 	switch method {
 	case pluginabi.MethodPluginRegister, pluginabi.MethodPluginReconfigure:
 		var req struct {

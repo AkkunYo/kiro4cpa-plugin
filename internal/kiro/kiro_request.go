@@ -84,7 +84,3 @@ type kiroToolSpec struct {
 		JSON json.RawMessage `json:"json"`
 	} `json:"inputSchema"`
 }
-
-func (c *inputContext) empty() bool {
-	return c == nil || (c.EnvState == nil && len(c.ToolResults) == 0 && len(c.Tools) == 0)
-}

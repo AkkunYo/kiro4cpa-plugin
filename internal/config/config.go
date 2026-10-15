@@ -7,21 +7,19 @@ import (
 )
 
 type PluginConfig struct {
-	Enabled         bool   `yaml:"enabled"`
-	DefaultEndpoint string `yaml:"default_endpoint"` // "ide" or "cli"
-	DefaultRegion   string `yaml:"default_region"`
-	ClientVersion   string `yaml:"client_version"`
-	OSVersion       string `yaml:"os_version"`
-	NodeVersion     string `yaml:"node_version"`
+	Enabled       bool   `yaml:"enabled"` // read by the CPA host itself
+	DefaultRegion string `yaml:"default_region"`
+	ClientVersion string `yaml:"client_version"`
+	OSVersion     string `yaml:"os_version"`
+	NodeVersion   string `yaml:"node_version"`
 }
 
 var defaults = PluginConfig{
-	Enabled:         true,
-	DefaultEndpoint: "ide",
-	DefaultRegion:   "us-east-1",
-	ClientVersion:   "1.4.5",
-	OSVersion:       "darwin#24.6.0",
-	NodeVersion:     "22.22.0",
+	Enabled:       true,
+	DefaultRegion: "us-east-1",
+	ClientVersion: "1.4.5",
+	OSVersion:     "darwin#24.6.0",
+	NodeVersion:   "22.22.0",
 }
 
 var (
@@ -52,9 +50,6 @@ func UpdateFromYAML(raw []byte) error {
 }
 
 func (c PluginConfig) withDefaults() PluginConfig {
-	if c.DefaultEndpoint == "" {
-		c.DefaultEndpoint = defaults.DefaultEndpoint
-	}
 	if c.DefaultRegion == "" {
 		c.DefaultRegion = defaults.DefaultRegion
 	}

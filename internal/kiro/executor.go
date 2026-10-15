@@ -68,7 +68,9 @@ func handleExecute(request []byte) ([]byte, error) {
 			collector.add(ev)
 		}
 	}
-	if collector.streamErr != nil && collector.empty() {
+	// Any in-band error means the answer is incomplete; partial content must not
+	// be returned as a finished message.
+	if collector.streamErr != nil {
 		return wire.ErrorStatus("upstream_stream_error", collector.streamErr.Error(), http.StatusBadGateway, true), nil
 	}
 	return wire.OK(pluginapi.ExecutorResponse{Payload: collector.message(conv)}), nil
@@ -162,7 +164,7 @@ func upstreamErrorEnvelope(err error) []byte {
 	}
 	status, retryable := map[ErrorKind]int{
 		ErrTokenInvalid: http.StatusUnauthorized, ErrQuotaExhausted: http.StatusPaymentRequired,
-		ErrSuspended: http.StatusForbidden, ErrRateLimited: http.StatusTooManyRequests,
+		ErrForbidden: http.StatusForbidden, ErrRateLimited: http.StatusTooManyRequests,
 		ErrBadRequest: http.StatusBadRequest,
 	}[up.Kind], false
 	if status == 0 {

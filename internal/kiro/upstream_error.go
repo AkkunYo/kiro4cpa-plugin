@@ -9,12 +9,12 @@ type ErrorKind int
 
 const (
 	ErrUnknown        ErrorKind = iota
-	ErrTokenInvalid             // force one refresh, then retry
-	ErrQuotaExhausted           // disable the credential and fail over
-	ErrSuspended                // account locked by upstream
-	ErrRateLimited              // cool down using response headers
-	ErrBadRequest               // the request itself is wrong; do not retry
-	ErrRetryable                // transient upstream failure
+	ErrTokenInvalid             // force one refresh and retry, then 401
+	ErrQuotaExhausted           // 402; CPA cools the credential down and fails over
+	ErrForbidden                // 403 (suspended, unsubscribed, ...); CPA fails over
+	ErrRateLimited              // 429; CPA applies its own backoff
+	ErrBadRequest               // 400; the request itself is wrong, no failover
+	ErrRetryable                // transient upstream failure, reported as 502
 )
 
 type UpstreamError struct {
@@ -44,8 +44,10 @@ func kindOf(status int, body string) ErrorKind {
 		return ErrTokenInvalid
 	case status == 403 && strings.Contains(body, "The bearer token included in the request is invalid"):
 		return ErrTokenInvalid
-	case status == 403 && strings.Contains(body, "suspended") && strings.Contains(body, "locked your account"):
-		return ErrSuspended
+	case status == 403:
+		// Any other 403 is about the account, not the request; a 400 here would
+		// stop CPA from rotating to another credential.
+		return ErrForbidden
 	case status == 402:
 		return ErrQuotaExhausted
 	case status == 429:

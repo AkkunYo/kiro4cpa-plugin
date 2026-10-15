@@ -133,6 +133,26 @@ func TestExecuteStreamEarlyExceptionSendsNothing(t *testing.T) {
 	}
 }
 
+func TestExecuteStreamLateExceptionAborts(t *testing.T) {
+	frames := kiroBody(eventFrame("assistantResponseEvent", `{"content":"partial"}`),
+		encodeFrame(map[string]string{":message-type": "exception", ":exception-type": "InternalServerException"}, []byte("boom")))
+	s := stubStream(t, &streamStub{status: 200, reads: []hostapi.StreamChunk{{Payload: frames}}})
+	streamCall(t, pingRequest)
+	msg := waitClosed(t, s)
+	all := strings.Join(s.emitted, "")
+	if !strings.Contains(msg, "InternalServerException") || !strings.Contains(all, `"text":"partial"`) || strings.Contains(all, "message_stop") {
+		t.Fatalf("close=%q emitted=%s", msg, all)
+	}
+}
+
+func TestExecuteStreamReadErrorMessage(t *testing.T) {
+	s := stubStream(t, &streamStub{status: 200, reads: []hostapi.StreamChunk{{Error: "reset by peer"}}})
+	streamCall(t, pingRequest)
+	if msg := waitClosed(t, s); msg != "kiro stream read failed: reset by peer" {
+		t.Fatalf("close=%q", msg)
+	}
+}
+
 func TestExecuteStreamStopsWhenClientLeaves(t *testing.T) {
 	frames := kiroBody(eventFrame("assistantResponseEvent", `{"content":"a"}`), eventFrame("assistantResponseEvent", `{"content":"b"}`))
 	s := stubStream(t, &streamStub{status: 200, emitFails: 2, reads: []hostapi.StreamChunk{{Payload: frames}}})

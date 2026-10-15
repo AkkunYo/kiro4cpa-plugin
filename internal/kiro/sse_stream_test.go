@@ -101,17 +101,17 @@ func TestSSEPlainTextAndStopReasons(t *testing.T) {
 	}
 }
 
-func TestSSEFailedBeforeContent(t *testing.T) {
+func TestSSERecordsStreamError(t *testing.T) {
 	s := newSSEStream(convertedRequest{})
-	s.handle(Event{Err: &StreamError{Kind: "exception", Code: "ThrottlingException"}})
-	if s.failedBeforeContent() == nil {
-		t.Fatal("early error not reported")
-	}
-	s = newSSEStream(convertedRequest{})
 	s.handle(Event{Assistant: &AssistantResponseEvent{Content: "x"}})
 	s.handle(Event{Err: &StreamError{Kind: "exception", Code: "ThrottlingException"}})
-	if s.failedBeforeContent() != nil {
-		t.Fatal("error after content must not abort the stream")
+	if s.streamErr == nil || s.streamErr.Code != "ThrottlingException" {
+		t.Fatalf("error after content not recorded: %+v", s.streamErr)
+	}
+	s = newSSEStream(convertedRequest{})
+	s.handle(Event{Err: &StreamError{Kind: "exception", Code: "ContentLengthExceededException"}})
+	if s.streamErr != nil || s.stopReason != "max_tokens" {
+		t.Fatalf("content length must end the answer, not fail it: %+v %q", s.streamErr, s.stopReason)
 	}
 }
 

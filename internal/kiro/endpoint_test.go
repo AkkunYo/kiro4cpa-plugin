@@ -112,7 +112,8 @@ func TestClassifyUpstream(t *testing.T) {
 	}{
 		{401, "", ErrTokenInvalid},
 		{403, "The bearer token included in the request is invalid", ErrTokenInvalid},
-		{403, "your account is suspended; we locked your account", ErrSuspended},
+		{403, "your account is suspended; we locked your account", ErrForbidden},
+		{403, `{"message":"User is not authorized to make this call."}`, ErrForbidden},
 		{402, `{"reason":"MONTHLY_REQUEST_COUNT"}`, ErrQuotaExhausted},
 		{429, "", ErrRateLimited},
 		{400, "CONTENT_LENGTH_EXCEEDS_THRESHOLD", ErrBadRequest},

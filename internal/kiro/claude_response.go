@@ -7,14 +7,15 @@ import (
 
 // responseCollector folds a complete Kiro event stream into one Claude message.
 type responseCollector struct {
-	text      strings.Builder
-	reasoning strings.Builder
-	signature string
-	toolOrder []string
-	tools     map[string]*collectedTool
-	usage     *TokenUsage
-	maxTokens bool
-	streamErr *StreamError
+	text        strings.Builder
+	reasoning   strings.Builder
+	signature   string
+	toolOrder   []string
+	tools       map[string]*collectedTool
+	usage       *TokenUsage
+	maxTokens   bool
+	contextFull bool
+	streamErr   *StreamError
 }
 
 type collectedTool struct {
@@ -42,6 +43,8 @@ func (c *responseCollector) add(ev Event) {
 			c.toolOrder = append(c.toolOrder, ev.ToolUse.ToolUseID)
 		}
 		t.input.WriteString(ev.ToolUse.Input)
+	case ev.ContextUsage != nil && ev.ContextUsage.ContextUsagePercentage >= 100:
+		c.contextFull = true
 	case ev.Metadata != nil && ev.Metadata.TokenUsage != nil:
 		c.usage = ev.Metadata.TokenUsage
 	case ev.Err != nil:
@@ -51,10 +54,6 @@ func (c *responseCollector) add(ev Event) {
 			c.streamErr = ev.Err
 		}
 	}
-}
-
-func (c *responseCollector) empty() bool {
-	return c.text.Len() == 0 && c.reasoning.Len() == 0 && len(c.toolOrder) == 0
 }
 
 func (c *responseCollector) message(conv convertedRequest) []byte {
@@ -86,9 +85,15 @@ func (c *responseCollector) message(conv convertedRequest) []byte {
 		}
 		content = append(content, map[string]any{"type": "tool_use", "id": id, "name": name, "input": input})
 	}
+	// Same precedence as sseStream.finish.
 	stop := "end_turn"
 	switch {
 	case c.maxTokens:
+		stop = "max_tokens"
+	case c.contextFull:
+		stop = "model_context_window_exceeded"
+	case thinking != "" && text == "" && len(c.toolOrder) == 0:
+		// A thinking-only answer means Kiro stopped before the visible reply.
 		stop = "max_tokens"
 	case len(c.toolOrder) > 0:
 		stop = "tool_use"

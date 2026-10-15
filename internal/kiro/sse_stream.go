@@ -75,15 +75,6 @@ func (s *sseStream) handle(ev Event) []sseEvent {
 	return nil
 }
 
-// failedBeforeContent reports an in-band error that arrived before any block,
-// which is better surfaced as an error than as an empty answer.
-func (s *sseStream) failedBeforeContent() *StreamError {
-	if s.next == 0 {
-		return s.streamErr
-	}
-	return nil
-}
-
 func (s *sseStream) finish() []sseEvent {
 	out := s.apply(s.parser.flush())
 	if s.sawThinking && !s.sawOther {
