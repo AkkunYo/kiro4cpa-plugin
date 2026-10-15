@@ -10,6 +10,7 @@ import (
 
 	"github.com/AkkunYo/kiro4cpa-plugin/internal/config"
 	"github.com/AkkunYo/kiro4cpa-plugin/internal/hostapi"
+	"github.com/AkkunYo/kiro4cpa-plugin/internal/models"
 	"github.com/AkkunYo/kiro4cpa-plugin/internal/wire"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginabi"
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
@@ -134,7 +135,7 @@ func TestAuthRefreshStoresTokenAndCatalog(t *testing.T) {
 	if stored["accessToken"] != "at2" || stored["subscriptionTitle"] != "KIRO FREE" || stored[catalogKey] == nil {
 		t.Fatalf("stored %v", stored)
 	}
-	if resp.Auth.Metadata["priority"] != 5.0 || resp.Auth.Disabled {
+	if resp.Auth.Metadata["priority"] != 5.0 || resp.Auth.Metadata[refreshIntervalKey] != float64(refreshIntervalSeconds) || resp.Auth.Disabled {
 		t.Fatalf("host metadata lost: %+v", resp.Auth)
 	}
 	if d := time.Until(resp.NextRefreshAfter); d < 45*time.Minute || d > 55*time.Minute {
@@ -151,7 +152,7 @@ func TestAuthRefreshStoresTokenAndCatalog(t *testing.T) {
 	for _, m := range forAuth.Models {
 		ids[m.ID] = true
 	}
-	if len(ids) != 3 || !ids["claude-haiku-4.5"] || !ids["claude-haiku-4-5"] || !ids["glm-5"] {
+	if len(ids) != 2 || !ids["claude-haiku-4.5"] || !ids["glm-5"] {
 		t.Fatalf("model ids %v", ids)
 	}
 }
@@ -186,8 +187,8 @@ func TestAuthRefreshInvalidGrantDisables(t *testing.T) {
 func TestModelForAuthFallsBackWithoutCatalog(t *testing.T) {
 	resp := callHandler[pluginapi.ModelResponse](t, pluginabi.MethodModelForAuth,
 		authModelRPC{AuthModelRequest: pluginapi.AuthModelRequest{StorageJSON: []byte(kiroRsSocial)}})
-	if len(resp.Models) != 10 {
-		t.Fatalf("want 8 fallback models + 2 dashed aliases, got %d", len(resp.Models))
+	if len(resp.Models) != len(models.FallbackModels) || resp.Models[0].ID != "auto" {
+		t.Fatalf("want the %d fallback models, got %d", len(models.FallbackModels), len(resp.Models))
 	}
 }
 
@@ -200,6 +201,19 @@ func TestFetchModelCatalogPaginates(t *testing.T) {
 	})
 	got, err := fetchModelCatalog(Credential{AuthMethod: AuthMethodSocial, AuthRegion: "us-east-1", AccessToken: "at", RefreshToken: "rt"}, config.Get(), "")
 	if err != nil || len(got) != 2 || got[1].ModelID != "glm-5" || len(*seen) != 2 {
+		t.Fatalf("models=%v err=%v calls=%d", got, err, len(*seen))
+	}
+}
+
+func TestFetchModelCatalogRetriesWithoutProfileARN(t *testing.T) {
+	seen := stubHTTP(t, func(r hostapi.HTTPRequest) (*hostapi.HTTPResponse, error) {
+		if strings.Contains(r.URL, "profileArn=") {
+			return &hostapi.HTTPResponse{StatusCode: 400, Body: []byte(`{"message":"Invalid profileArn."}`)}, nil
+		}
+		return ok(`{"models":[{"modelId":"auto"}]}`)
+	})
+	got, err := fetchModelCatalog(Credential{AuthMethod: AuthMethodSocial, AuthRegion: "us-east-1", AccessToken: "at", RefreshToken: "rt", ProfileArn: "arn:broken"}, config.Get(), "")
+	if err != nil || len(got) != 1 || got[0].ModelID != "auto" || len(*seen) != 2 {
 		t.Fatalf("models=%v err=%v calls=%d", got, err, len(*seen))
 	}
 }

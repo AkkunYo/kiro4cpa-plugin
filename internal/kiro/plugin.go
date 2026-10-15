@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/AkkunYo/kiro4cpa-plugin/internal/config"
@@ -38,6 +39,7 @@ type registrationCapability struct {
 	ExecutorModelScope    pluginapi.ExecutorModelScope `json:"executor_model_scope"`
 	ExecutorInputFormats  []string                     `json:"executor_input_formats,omitempty"`
 	ExecutorOutputFormats []string                     `json:"executor_output_formats,omitempty"`
+	QuotaProvider         bool                         `json:"quota_provider"`
 }
 
 type identifierResponse struct {
@@ -70,6 +72,7 @@ func getRegistration() registration {
 			// CPA translates OpenAI Chat / Responses to and from Claude itself.
 			ExecutorInputFormats:  []string{"claude"},
 			ExecutorOutputFormats: []string{"claude"},
+			QuotaProvider:         true,
 		},
 	}
 }
@@ -130,6 +133,15 @@ func HandleMethod(method string, request []byte) ([]byte, error) {
 	case pluginabi.MethodExecutorCountTokens:
 		return handleCountTokens(request)
 
+	case pluginabi.MethodQuotaIdentifier:
+		return wire.OK(identifierResponse{Identifier: models.ProviderName}), nil
+
+	case pluginabi.MethodQuotaDescribe:
+		return handleQuotaDescribe()
+
+	case pluginabi.MethodQuotaFetch:
+		return handleQuotaFetch(request)
+
 	default:
 		return wire.Error("unsupported_method", "method not supported yet: "+method), nil
 	}
@@ -175,7 +187,7 @@ func handleAuthParse(request []byte) ([]byte, error) {
 			FileName:         req.FileName,
 			Label:            firstNonEmpty(cred.Email, req.FileName),
 			StorageJSON:      storage,
-			Metadata:         displayMetadata(cred),
+			Metadata:         authMetadata(cred),
 			NextRefreshAfter: next,
 		},
 	}), nil
@@ -193,6 +205,7 @@ func handleAuthRefresh(request []byte) ([]byte, error) {
 	cfg := config.Get()
 	now := time.Now()
 	metadata := cloneMap(req.Metadata)
+	metadata[refreshIntervalKey] = refreshIntervalSeconds
 
 	refreshed, err := refreshCredential(cred, cfg, req.HostCallbackID, now)
 	if errors.Is(err, ErrInvalidGrant) {
@@ -261,22 +274,68 @@ func scheduledRefresh(c Credential, now time.Time) time.Time {
 	return expiresAt.Add(-refreshLead)
 }
 
-func displayMetadata(c Credential) map[string]any {
-	if c.Email == "" {
-		return nil
+// CPA schedules auth.refresh for a plugin provider only when its metadata carries
+// refresh_interval_seconds; NextRefreshAfter can delay a refresh but never start one.
+const (
+	refreshIntervalKey     = "refresh_interval_seconds"
+	refreshIntervalSeconds = 1800
+)
+
+func authMetadata(c Credential) map[string]any {
+	m := map[string]any{refreshIntervalKey: refreshIntervalSeconds}
+	if c.Email != "" {
+		m["email"] = c.Email
 	}
-	return map[string]any{"email": c.Email}
+	return m
 }
 
 func fetchModelCatalog(c Credential, cfg config.PluginConfig, callbackID string) ([]models.UpstreamModel, error) {
+	headers := runtimeHeaders(c, cfg)
+	regions := restRegionCandidates(c)
+
+	type attempt struct {
+		region     string
+		profileArn string
+	}
+	var attempts []attempt
+	for _, reg := range regions {
+		if arn := effectiveProfileARN(c); arn != "" {
+			attempts = append(attempts, attempt{region: reg, profileArn: arn})
+		}
+		attempts = append(attempts, attempt{region: reg, profileArn: ""})
+	}
+
+	var lastErr error
+	for idx, att := range attempts {
+		all, err := fetchModelCatalogPages(c, att.region, att.profileArn, headers, callbackID)
+		if err == nil {
+			return all, nil
+		}
+		lastErr = err
+
+		var up *UpstreamError
+		if errors.As(err, &up) {
+			shouldRetry := up.Status == http.StatusForbidden ||
+				(up.Status == http.StatusBadRequest &&
+					(strings.Contains(up.Body, "Invalid profileArn") || strings.Contains(up.Body, "Improperly formed request")))
+			if shouldRetry && idx+1 < len(attempts) {
+				continue
+			}
+		}
+		break
+	}
+	return nil, lastErr
+}
+
+func fetchModelCatalogPages(c Credential, region, profileArn string, headers map[string][]string, callbackID string) ([]models.UpstreamModel, error) {
 	var all []models.UpstreamModel
 	nextToken := ""
 	for page := 0; page < maxModelPages; page++ {
 		resp, err := hostHTTPDo(hostapi.HTTPRequest{
 			HostCallbackID: callbackID,
 			Method:         http.MethodGet,
-			URL:            listModelsURL(c, nextToken),
-			Headers:        runtimeHeaders(c, cfg),
+			URL:            listModelsURLWith(c, region, profileArn, nextToken),
+			Headers:        headers,
 		})
 		if err != nil {
 			return nil, err

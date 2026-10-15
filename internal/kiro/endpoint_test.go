@@ -65,6 +65,26 @@ func TestListModelsURL(t *testing.T) {
 	}
 }
 
+func TestEffectiveProfileARN(t *testing.T) {
+	if got := effectiveProfileARN(Credential{ProfileArn: builderIDPlaceholderARN}); got != "" {
+		t.Fatalf("expected empty for builderIDPlaceholderARN, got %q", got)
+	}
+	if got := effectiveProfileARN(Credential{ProfileArn: "arn:real"}); got != "arn:real" {
+		t.Fatalf("expected arn:real, got %q", got)
+	}
+}
+
+func TestRestRegionCandidates(t *testing.T) {
+	us := restRegionCandidates(Credential{AuthRegion: "us-east-1"})
+	if len(us) != 2 || us[0] != "us-east-1" || us[1] != "eu-central-1" {
+		t.Fatalf("expected us-east-1 candidates, got %v", us)
+	}
+	eu := restRegionCandidates(Credential{AuthRegion: "eu-west-1"})
+	if len(eu) != 2 || eu[0] != "eu-central-1" || eu[1] != "us-east-1" {
+		t.Fatalf("expected eu-central-1 candidates, got %v", eu)
+	}
+}
+
 func TestHeadersTokenTypeAndBearer(t *testing.T) {
 	cfg := config.Get()
 	api := streamHeaders(Credential{AuthMethod: AuthMethodAPIKey, KiroAPIKey: "ksk_1"}, cfg)

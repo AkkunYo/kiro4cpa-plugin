@@ -16,7 +16,23 @@ var regionPattern = regexp.MustCompile(`^[a-z]{2}(-[a-z]+)+-[0-9]$`)
 const (
 	socialPlaceholderARN    = "arn:aws:codewhisperer:us-east-1:699475941385:profile/EHGA3GRVQMUK"
 	builderIDPlaceholderARN = "arn:aws:codewhisperer:us-east-1:638616132270:profile/AAAACCCCXXXX"
+	usageAPIClientVersion   = "0.9.2"
 )
+
+func effectiveProfileARN(c Credential) string {
+	if c.ProfileArn == builderIDPlaceholderARN {
+		return ""
+	}
+	return c.ProfileArn
+}
+
+func restRegionCandidates(c Credential) []string {
+	primary := c.restRegion()
+	if primary == "eu-central-1" {
+		return []string{"eu-central-1", "us-east-1"}
+	}
+	return []string{"us-east-1", "eu-central-1"}
+}
 
 func validateRegion(region string) error {
 	if !regionPattern.MatchString(region) {
@@ -49,14 +65,21 @@ func generateURL(c Credential, cfg config.PluginConfig) (string, error) {
 }
 
 func listModelsURL(c Credential, nextToken string) string {
+	return listModelsURLWith(c, c.restRegion(), effectiveProfileARN(c), nextToken)
+}
+
+func listModelsURLWith(c Credential, region, profileArn, nextToken string) string {
 	q := url.Values{"origin": {"AI_EDITOR"}}
-	if c.ProfileArn != "" {
-		q.Set("profileArn", c.ProfileArn)
+	if profileArn != "" {
+		q.Set("profileArn", profileArn)
 	}
 	if nextToken != "" {
 		q.Set("nextToken", nextToken)
 	}
-	return fmt.Sprintf("https://q.%s.amazonaws.com/ListAvailableModels?%s", c.restRegion(), q.Encode())
+	if region == "" {
+		region = c.restRegion()
+	}
+	return fmt.Sprintf("https://q.%s.amazonaws.com/ListAvailableModels?%s", region, q.Encode())
 }
 
 func streamHeaders(c Credential, cfg config.PluginConfig) map[string][]string {
@@ -82,9 +105,9 @@ func runtimeHeaders(c Credential, cfg config.PluginConfig) map[string][]string {
 	mid := machineID(c)
 	h := map[string][]string{
 		"Authorization":    {"Bearer " + c.bearerToken()},
-		"x-amz-user-agent": {fmt.Sprintf("aws-sdk-js/1.0.0 KiroIDE-%s-%s", cfg.ClientVersion, mid)},
+		"x-amz-user-agent": {fmt.Sprintf("aws-sdk-js/1.0.0 KiroIDE-%s-%s", usageAPIClientVersion, mid)},
 		"user-agent": {fmt.Sprintf("aws-sdk-js/1.0.0 ua/2.1 os/%s lang/js md/nodejs#%s api/codewhispererruntime#1.0.0 m/N,E KiroIDE-%s-%s",
-			cfg.OSVersion, cfg.NodeVersion, cfg.ClientVersion, mid)},
+			cfg.OSVersion, cfg.NodeVersion, usageAPIClientVersion, mid)},
 	}
 	if t := tokenType(c); t != "" {
 		h["tokentype"] = []string{t}

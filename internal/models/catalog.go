@@ -47,21 +47,13 @@ func GetDefaultModelInfos() []pluginapi.ModelInfo {
 	return ToModelInfos(FallbackModels)
 }
 
-// ToModelInfos also publishes a dashed alias for dotted Claude IDs
-// (claude-haiku-4.5 -> claude-haiku-4-5) so either client spelling resolves.
+// ToModelInfos publishes Kiro's own model IDs only; client spellings such as
+// claude-haiku-4-5-20251001 are mapped by the caller (e.g. NewAPI model mapping).
 func ToModelInfos(upstream []UpstreamModel) []pluginapi.ModelInfo {
-	out := make([]pluginapi.ModelInfo, 0, len(upstream)*2)
+	out := make([]pluginapi.ModelInfo, 0, len(upstream))
 	for _, m := range upstream {
-		id := strings.TrimSpace(m.ModelID)
-		if id == "" {
-			continue
-		}
-		info := modelInfo(id, m)
-		out = append(out, info)
-		if alias := dashedAlias(id); alias != "" {
-			aliased := info
-			aliased.ID = alias
-			out = append(out, aliased)
+		if id := strings.TrimSpace(m.ModelID); id != "" {
+			out = append(out, modelInfo(id, m))
 		}
 	}
 	return out
@@ -115,13 +107,6 @@ func inputModalities(types []string) []string {
 		out = append(out, strings.ToLower(t))
 	}
 	return out
-}
-
-func dashedAlias(id string) string {
-	if !strings.HasPrefix(id, "claude-") || !strings.Contains(id, ".") {
-		return ""
-	}
-	return strings.ReplaceAll(id, ".", "-")
 }
 
 func thinkingSupport(enabled bool) *pluginapi.ThinkingSupport {

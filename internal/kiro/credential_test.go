@@ -90,7 +90,7 @@ func parseRequest(t *testing.T, provider, raw string) pluginapi.AuthParseRespons
 
 func TestAuthParseSchedulesImmediateRefreshWithoutCatalog(t *testing.T) {
 	resp := parseRequest(t, "kiro4cpa", kiroRsSocial)
-	if !resp.Handled || resp.Auth.Label != "a@b.c" || resp.Auth.Metadata["email"] != "a@b.c" {
+	if !resp.Handled || resp.Auth.Label != "a@b.c" || resp.Auth.Metadata["email"] != "a@b.c" || resp.Auth.Metadata[refreshIntervalKey] != float64(refreshIntervalSeconds) {
 		t.Fatalf("got %+v", resp)
 	}
 	if resp.Auth.NextRefreshAfter.After(time.Now()) {
