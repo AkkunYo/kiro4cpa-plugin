@@ -248,6 +248,10 @@ func TestRegisterAppliesPluginConfig(t *testing.T) {
 	if reg.Metadata.Name != "kiro4cpa" || !reg.Capabilities.AuthProvider || config.Get().ClientVersion != "9.9.9" {
 		t.Fatalf("registration %+v client_version=%s", reg.Metadata, config.Get().ClientVersion)
 	}
+	// Static scope would bypass oauth-excluded-models (see plugin.go).
+	if reg.Capabilities.ExecutorModelScope != pluginapi.ExecutorModelScopeOAuth {
+		t.Fatalf("executor_model_scope = %q, want oauth", reg.Capabilities.ExecutorModelScope)
+	}
 }
 
 func TestDispatchStaticMethods(t *testing.T) {

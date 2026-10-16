@@ -63,11 +63,14 @@ func getRegistration() registration {
 			},
 		},
 		Capabilities: registrationCapability{
-			ModelRegistrar:     true,
-			ModelProvider:      true,
-			AuthProvider:       true,
-			Executor:           true,
-			ExecutorModelScope: pluginapi.ExecutorModelScopeBoth,
+			ModelRegistrar: true,
+			ModelProvider:  true,
+			AuthProvider:   true,
+			Executor:       true,
+			// Kiro has no credential-free models. Static models would be published
+			// under a credential-less executor client that CPA never filters with
+			// oauth-excluded-models, so only per-auth models are exposed.
+			ExecutorModelScope: pluginapi.ExecutorModelScopeOAuth,
 			// CPA translates OpenAI Chat / Responses to and from Claude itself.
 			ExecutorInputFormats:  []string{"claude"},
 			ExecutorOutputFormats: []string{"claude"},
