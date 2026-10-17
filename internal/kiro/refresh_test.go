@@ -245,7 +245,7 @@ func TestRefreshUpstreamErrorIsClassified(t *testing.T) {
 func TestRegisterAppliesPluginConfig(t *testing.T) {
 	t.Cleanup(func() { _ = config.UpdateFromYAML([]byte("enabled: true\n")) })
 	reg := callHandler[registration](t, pluginabi.MethodPluginRegister, map[string]any{"config_yaml": []byte("enabled: true\nclient_version: 9.9.9\n")})
-	if reg.Metadata.Name != "kiro4cpa" || !reg.Capabilities.AuthProvider || config.Get().ClientVersion != "9.9.9" {
+	if reg.Metadata.Name != "Kiro" || !reg.Capabilities.AuthProvider || config.Get().ClientVersion != "9.9.9" {
 		t.Fatalf("registration %+v client_version=%s", reg.Metadata, config.Get().ClientVersion)
 	}
 	// Static scope would bypass oauth-excluded-models (see plugin.go).

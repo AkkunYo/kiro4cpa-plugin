@@ -50,10 +50,11 @@ func getRegistration() registration {
 	return registration{
 		SchemaVersion: pluginabi.SchemaVersion,
 		Metadata: pluginapi.Metadata{
-			Name:             "kiro4cpa",
+			Name:             "Kiro",
 			Version:          "1.0.0",
 			Author:           "AkkunYo",
 			GitHubRepository: "https://github.com/AkkunYo/kiro4cpa-plugin",
+			Logo:             logoDataURI(),
 			ConfigFields: []pluginapi.ConfigField{
 				{Name: "enabled", Type: pluginapi.ConfigFieldTypeBoolean, Description: "Enable Kiro plugin"},
 				{Name: "default_region", Type: pluginapi.ConfigFieldTypeString, Description: "Default AWS Region"},

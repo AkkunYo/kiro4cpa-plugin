@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="100%" height="100%">
+  <defs>
+    <linearGradient id="kiro-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#FF5A36"/>
+      <stop offset="50%" stop-color="#FF007A"/>
+      <stop offset="100%" stop-color="#7928CA"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#kiro-grad)"/>
+  <path d="M36 32 H48 V56 L76 32 H92 L62 60 L94 96 H77 L51 66 V96 H36 Z" fill="#FFFFFF"/>
+</svg>
