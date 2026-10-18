@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Kiro 账号连接与授权</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --card-bg: #1a1d27;
+      --text: #e2e8f0;
+      --text-muted: #94a3b8;
+      --primary: #6366f1;
+      --primary-hover: #4f46e5;
+      --border: #2d3748;
+      --success: #10b981;
+      --error: #ef4444;
+      --input-bg: #131620;
+    }
+    @media (prefers-color-scheme: light) {
+      :root {
+        --bg: #f8fafc;
+        --card-bg: #ffffff;
+        --text: #0f172a;
+        --text-muted: #64748b;
+        --primary: #4f46e5;
+        --primary-hover: #4338ca;
+        --border: #e2e8f0;
+        --input-bg: #f1f5f9;
+      }
+    }
+    body {
+      margin: 0;
+      padding: 24px;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 90vh;
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      width: 100%;
+      max-width: 520px;
+      padding: 32px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 24px;
+    }
+    .logo {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+    }
+    h1 {
+      margin: 0;
+      font-size: 20px;
+      font-weight: 600;
+    }
+    .tabs {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      margin-bottom: 24px;
+      gap: 8px;
+    }
+    .tab-btn {
+      background: none;
+      border: none;
+      padding: 10px 14px;
+      color: var(--text-muted);
+      cursor: pointer;
+      font-weight: 500;
+      border-bottom: 2px solid transparent;
+      font-size: 14px;
+    }
+    .tab-btn.active {
+      color: var(--primary);
+      border-bottom-color: var(--primary);
+    }
+    .tab-pane {
+      display: none;
+    }
+    .tab-pane.active {
+      display: block;
+    }
+    .field {
+      margin-bottom: 18px;
+    }
+    label {
+      display: block;
+      margin-bottom: 6px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--text-muted);
+    }
+    input, select {
+      width: 100%;
+      box-sizing: border-box;
+      padding: 10px 12px;
+      background: var(--input-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 14px;
+    }
+    input:focus, select:focus {
+      outline: none;
+      border-color: var(--primary);
+    }
+    .btn {
+      width: 100%;
+      padding: 12px;
+      background: var(--primary);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-weight: 600;
+      cursor: pointer;
+      font-size: 14px;
+      transition: background 0.2s;
+    }
+    .btn:hover {
+      background: var(--primary-hover);
+    }
+    .btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .code-box {
+      margin-top: 20px;
+      padding: 16px;
+      border-radius: 8px;
+      background: var(--input-bg);
+      border: 1px dashed var(--border);
+      text-align: center;
+    }
+    .code-val {
+      font-size: 24px;
+      font-family: monospace;
+      letter-spacing: 2px;
+      font-weight: bold;
+      color: var(--primary);
+      margin: 8px 0;
+    }
+    .status-msg {
+      margin-top: 16px;
+      padding: 12px;
+      border-radius: 8px;
+      font-size: 13px;
+      display: none;
+    }
+    .status-msg.success {
+      display: block;
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--success);
+      border: 1px solid rgba(16, 185, 129, 0.3);
+    }
+    .status-msg.error {
+      display: block;
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--error);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+    }
+    .note {
+      font-size: 12px;
+      color: var(--text-muted);
+      margin-top: 12px;
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <div class="header">
+      <svg class="logo" viewBox="0 0 128 128">
+        <defs>
+          <linearGradient id="kiro-grad" x1="0%" y1="0%" x2="100%" y2="100%">
+            <stop offset="0%" stop-color="#FF5A36"/>
+            <stop offset="50%" stop-color="#FF007A"/>
+            <stop offset="100%" stop-color="#7928CA"/>
+          </linearGradient>
+        </defs>
+        <rect width="128" height="128" rx="28" fill="url(#kiro-grad)"/>
+        <path d="M36 32 H48 V56 L76 32 H92 L62 60 L94 96 H77 L51 66 V96 H36 Z" fill="#FFFFFF"/>
+      </svg>
+      <div>
+        <h1>Kiro 账号连接与授权</h1>
+        <div style="font-size: 12px; color: var(--text-muted);">CPA-Manager-Plus 凭据接入向导</div>
+      </div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" onclick="switchTab('builder')">Builder ID</button>
+      <button class="tab-btn" onclick="switchTab('idc')">IAM IdC</button>
+      <button class="tab-btn" onclick="switchTab('social')">Social 账号</button>
+      <button class="tab-btn" onclick="switchTab('apikey')">API Key</button>
+    </div>
+
+    <!-- Tab 1: Builder ID -->
+    <div id="pane-builder" class="tab-pane active">
+      <div class="note" style="margin-bottom: 16px;">
+        推荐个人开发者使用。通过 AWS SSO 官方设备代码流免密授权。
+      </div>
+      <button class="btn" id="btn-builder" onclick="startDeviceFlow('builder')">生成 AWS 授权码</button>
+      <div id="device-box-builder" class="code-box" style="display: none;">
+        <div>请复制以下验证码并在弹出的 AWS 页面输入：</div>
+        <div class="code-val" id="user-code-builder"></div>
+        <a id="auth-link-builder" href="#" target="_blank" class="btn" style="display: inline-block; text-decoration: none; margin-top: 8px;">打开 AWS 授权页面</a>
+        <div class="note" style="margin-top: 8px;">授权完成后本页面将自动检测并同步凭据...</div>
+      </div>
+    </div>
+
+    <!-- Tab 2: IAM IdC -->
+    <div id="pane-idc" class="tab-pane">
+      <div class="field">
+        <label>Start URL (SSO 起始链接)</label>
+        <input type="text" id="idc-start-url" placeholder="https://d-xxxx.awsapps.com/start">
+      </div>
+      <div class="field">
+        <label>AWS Region</label>
+        <input type="text" id="idc-region" value="us-east-1">
+      </div>
+      <button class="btn" id="btn-idc" onclick="startDeviceFlow('idc')">开始 IdC 授权</button>
+      <div id="device-box-idc" class="code-box" style="display: none;">
+        <div>请复制以下验证码并在弹出的 AWS 页面输入：</div>
+        <div class="code-val" id="user-code-idc"></div>
+        <a id="auth-link-idc" href="#" target="_blank" class="btn" style="display: inline-block; text-decoration: none; margin-top: 8px;">打开 AWS 授权页面</a>
+        <div class="note" style="margin-top: 8px;">授权完成后本页面将自动检测并同步凭据...</div>
+      </div>
+    </div>
+
+    <!-- Tab 3: Social -->
+    <div id="pane-social" class="tab-pane">
+      <div class="field">
+        <label>Refresh Token (Google / GitHub)</label>
+        <input type="text" id="social-token" placeholder="从 Kiro IDE 或 kiro.rs 获取的 refreshToken">
+      </div>
+      <div class="field">
+        <label>Region</label>
+        <input type="text" id="social-region" value="us-east-1">
+      </div>
+      <button class="btn" id="btn-social" onclick="submitDirect('social')">提交并保存凭据</button>
+    </div>
+
+    <!-- Tab 4: API Key -->
+    <div id="pane-apikey" class="tab-pane">
+      <div class="field">
+        <label>Kiro API Key</label>
+        <input type="text" id="api-key-val" placeholder="填入以 kiro- 开头的 API Key">
+      </div>
+      <button class="btn" id="btn-apikey" onclick="submitDirect('api_key')">提交并保存凭据</button>
+    </div>
+
+    <div id="status-msg" class="status-msg"></div>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(window.location.search);
+    const state = params.get('state');
+    let pollTimer = null;
+
+    function switchTab(name) {
+      document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
+      event.target.classList.add('active');
+      document.getElementById('pane-' + name).classList.add('active');
+    }
+
+    function showStatus(msg, isError) {
+      const el = document.getElementById('status-msg');
+      el.textContent = msg;
+      el.className = 'status-msg ' + (isError ? 'error' : 'success');
+    }
+
+    async function startDeviceFlow(kind) {
+      const btn = document.getElementById('btn-' + kind);
+      btn.disabled = true;
+      btn.textContent = '正在获取授权码...';
+
+      let body = { state, kind };
+      if (kind === 'idc') {
+        body.startUrl = document.getElementById('idc-start-url').value.trim();
+        body.region = document.getElementById('idc-region').value.trim() || 'us-east-1';
+        if (!body.startUrl) {
+          showStatus('请输入 Start URL', true);
+          btn.disabled = false;
+          btn.textContent = '开始 IdC 授权';
+          return;
+        }
+      }
+
+      try {
+        const res = await fetch('/plugins/kiro4cpa/api/device-code', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '请求失败');
+
+        document.getElementById('device-box-' + kind).style.display = 'block';
+        document.getElementById('user-code-' + kind).textContent = data.userCode;
+        const link = document.getElementById('auth-link-' + kind);
+        link.href = data.verificationUriComplete || data.verificationUri;
+        btn.textContent = '重新生成';
+        btn.disabled = false;
+
+        startPolling();
+      } catch (err) {
+        showStatus('发起授权失败: ' + err.message, true);
+        btn.disabled = false;
+        btn.textContent = '重试';
+      }
+    }
+
+    function startPolling() {
+      if (pollTimer) clearInterval(pollTimer);
+      pollTimer = setInterval(async () => {
+        try {
+          const res = await fetch('/plugins/kiro4cpa/api/poll?state=' + encodeURIComponent(state));
+          const data = await res.json();
+          if (data.status === 'success') {
+            clearInterval(pollTimer);
+            showStatus('🎉 授权成功！凭据已关联，可返回 CPA 管理面板。', false);
+          } else if (data.status === 'error') {
+            clearInterval(pollTimer);
+            showStatus('授权出错: ' + data.error, true);
+          }
+        } catch (e) {}
+      }, 3000);
+    }
+
+    async function submitDirect(method) {
+      const btn = document.getElementById(method === 'social' ? 'btn-social' : 'btn-apikey');
+      btn.disabled = true;
+      btn.textContent = '正在验证保存...';
+
+      let body = { state, method };
+      if (method === 'social') {
+        body.refreshToken = document.getElementById('social-token').value.trim();
+        body.region = document.getElementById('social-region').value.trim();
+        if (!body.refreshToken) {
+          showStatus('请输入 refreshToken', true);
+          btn.disabled = false;
+          btn.textContent = '提交并保存凭据';
+          return;
+        }
+      } else {
+        body.kiroApiKey = document.getElementById('api-key-val').value.trim();
+        if (!body.kiroApiKey) {
+          showStatus('请输入 Kiro API Key', true);
+          btn.disabled = false;
+          btn.textContent = '提交并保存凭据';
+          return;
+        }
+      }
+
+      try {
+        const res = await fetch('/plugins/kiro4cpa/api/submit-credential', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        const data = await res.json();
+        if (!res.ok || data.error) throw new Error(data.error || '保存失败');
+
+        showStatus('🎉 凭据保存成功！可返回 CPA 管理面板。', false);
+        btn.textContent = '已保存';
+      } catch (err) {
+        showStatus('保存失败: ' + err.message, true);
+        btn.disabled = false;
+        btn.textContent = '重试';
+      }
+    }
+  </script>
+</body>
+</html>
