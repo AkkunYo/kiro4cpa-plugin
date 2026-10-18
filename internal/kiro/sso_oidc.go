@@ -49,6 +49,8 @@ type SSOOIDCClient struct {
 	baseURLFn  func(region string) string
 }
 
+var newSSOOIDCClientFn = NewSSOOIDCClient
+
 func NewSSOOIDCClient() *SSOOIDCClient {
 	return &SSOOIDCClient{
 		httpClient: &http.Client{Timeout: 30 * time.Second},

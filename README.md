@@ -99,11 +99,19 @@ GET /v0/management/plugins/kiro4cpa/quota?auth_index=<auth-index>
 
 管理面板能否展示额度，取决于面板是否支持插件 QuotaProvider。官方 [Cli-Proxy-API-Management-Center](https://github.com/router-for-me/Cli-Proxy-API-Management-Center) 支持；部分第三方面板只认内置 provider，不会显示。
 
+## Web 登录授权
+
+插件以 **Kiro** 名称和内嵌品牌图标注册。在 CPA-Manager-Plus Web 端「登录授权」页面点击「开始 Kiro 登录」，即可发起 **AWS Builder ID** 设备授权：
+
+1. 插件向 AWS SSO OIDC 注册客户端并获取设备码，面板展示官方验证链接和用户码。
+2. 打开 AWS 官方页面完成授权；面板轮询登录状态，成功后由 CPA 保存凭据。
+
+此流程直接使用 AWS 官方验证页面。当前 Web 登录入口仅支持 Builder ID；Social、企业 IAM Identity Center、External IdP 和 API Key 凭据请按上方「导入凭据」说明保存为 JSON 文件。
+
 ## 已知限制
 
-- 不提供登录流程，凭据需要从 Kiro IDE 或 kiro.rs 等工具获取
-- 实际测试过的只有 Social 账号；IdC、External IdP、API Key 按协议实现，尚未在真实账号上验证
-- 只测试过 linux/amd64
+- 实际测试过的有 Social 账号与 Builder ID 设备流；IdC、External IdP、API Key 按协议实现
+- 只测试过 linux/amd64 与 darwin/arm64
 
 ## 致谢
 

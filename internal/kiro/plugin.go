@@ -1,6 +1,7 @@
 package kiro
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -130,6 +131,12 @@ func HandleMethod(method string, request []byte) (out []byte, err error) {
 
 	case pluginabi.MethodAuthRefresh:
 		return handleAuthRefresh(request)
+
+	case pluginabi.MethodAuthLoginStart:
+		return handleLoginStart(request)
+
+	case pluginabi.MethodAuthLoginPoll:
+		return handleLoginPoll(request)
 
 	case pluginabi.MethodExecutorIdentifier:
 		return wire.OK(identifierResponse{Identifier: models.ProviderName}), nil
@@ -397,4 +404,202 @@ func catalogFrom(fields map[string]any) ([]models.UpstreamModel, bool) {
 		return nil, false
 	}
 	return stored.Models, true
+}
+
+
+func handleLoginStart(request []byte) ([]byte, error) {
+	var req pluginapi.AuthLoginStartRequest
+	if len(request) > 0 {
+		_ = json.Unmarshal(request, &req)
+	}
+
+	region := defaultSSORegion
+	startURL := builderStartURL
+
+	oidc := newSSOOIDCClientFn()
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+
+	regResp, err := oidc.RegisterClient(ctx, region)
+	if err != nil {
+		return wire.Error("login_register_failed", "Failed to register AWS OIDC client: "+err.Error()), nil
+	}
+
+	authResp, err := oidc.StartDeviceAuth(ctx, regResp.ClientID, regResp.ClientSecret, startURL, region)
+	if err != nil {
+		return wire.Error("login_device_failed", "Failed to start AWS device authorization: "+err.Error()), nil
+	}
+
+	authURL := strings.TrimSpace(authResp.VerificationURIComplete)
+	if authURL == "" {
+		authURL = strings.TrimSpace(authResp.VerificationURI)
+	}
+
+	expiresIn := authResp.ExpiresIn
+	if expiresIn <= 0 {
+		expiresIn = 600
+	}
+
+	session, err := createLoginSession(time.Duration(expiresIn) * time.Second)
+	if err != nil {
+		return nil, err
+	}
+	session.ClientID = regResp.ClientID
+	session.ClientSecret = regResp.ClientSecret
+	session.DeviceCode = authResp.DeviceCode
+	session.UserCode = authResp.UserCode
+	session.VerifyURL = authURL
+	session.Region = region
+	session.StartURL = startURL
+
+	metadata := map[string]any{
+		"clientId":     regResp.ClientID,
+		"clientSecret": regResp.ClientSecret,
+		"deviceCode":   authResp.DeviceCode,
+		"userCode":     authResp.UserCode,
+		"region":       region,
+		"startURL":     startURL,
+		"authMethod":   "builder-id",
+	}
+
+	return wire.OK(pluginapi.AuthLoginStartResponse{
+		Provider:  models.ProviderName,
+		URL:       authURL,
+		State:     session.State,
+		ExpiresAt: session.ExpiresAt,
+		Metadata:  metadata,
+	}), nil
+}
+
+func handleLoginPoll(request []byte) ([]byte, error) {
+	var req pluginapi.AuthLoginPollRequest
+	if err := json.Unmarshal(request, &req); err != nil {
+		return nil, err
+	}
+
+	meta := req.Metadata
+	clientID, _ := meta["clientId"].(string)
+	clientSecret, _ := meta["clientSecret"].(string)
+	deviceCode, _ := meta["deviceCode"].(string)
+	region, _ := meta["region"].(string)
+	authMethod, _ := meta["authMethod"].(string)
+
+	session, hasSession := getLoginSession(req.State)
+	if hasSession {
+		if clientID == "" {
+			clientID = session.ClientID
+		}
+		if clientSecret == "" {
+			clientSecret = session.ClientSecret
+		}
+		if deviceCode == "" {
+			deviceCode = session.DeviceCode
+		}
+		if region == "" {
+			region = session.Region
+		}
+		if session.Completed != nil {
+			return wire.OK(buildLoginSuccessResponse(*session.Completed, session.State)), nil
+		}
+		if session.Error != "" {
+			return wire.OK(pluginapi.AuthLoginPollResponse{
+				Status:  pluginapi.AuthLoginStatusError,
+				Message: session.Error,
+			}), nil
+		}
+	}
+
+	if region == "" {
+		region = defaultSSORegion
+	}
+	if authMethod == "" {
+		authMethod = "builder-id"
+	}
+
+	if clientID == "" || clientSecret == "" || deviceCode == "" {
+		return wire.OK(pluginapi.AuthLoginPollResponse{
+			Status:  pluginapi.AuthLoginStatusError,
+			Message: "Missing device-code context in login session",
+		}), nil
+	}
+
+	oidc := newSSOOIDCClientFn()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	tok, err := oidc.CreateToken(ctx, clientID, clientSecret, deviceCode, region)
+	if err != nil {
+		if errors.Is(err, ErrAuthPending) || errors.Is(err, ErrSlowDown) {
+			return wire.OK(pluginapi.AuthLoginPollResponse{
+				Status:  pluginapi.AuthLoginStatusPending,
+				Message: "Waiting for user authorization",
+			}), nil
+		}
+		if hasSession {
+			failLoginSession(req.State, err.Error())
+		}
+		return wire.OK(pluginapi.AuthLoginPollResponse{
+			Status:  pluginapi.AuthLoginStatusError,
+			Message: err.Error(),
+		}), nil
+	}
+
+	cred := Credential{
+		AuthMethod:   authMethod,
+		AccessToken:  tok.AccessToken,
+		RefreshToken: tok.RefreshToken,
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Region:       region,
+		AuthRegion:   region,
+		ProfileArn:   tok.ProfileArn,
+		ExpiresAt:    time.Now().UTC().Add(time.Duration(tok.ExpiresIn) * time.Second).Format(time.RFC3339),
+	}
+
+	if hasSession {
+		completeLoginSession(req.State, &cred, "Kiro device login completed")
+	}
+
+	return wire.OK(buildLoginSuccessResponse(cred, req.State)), nil
+}
+
+func buildLoginSuccessResponse(cred Credential, state string) pluginapi.AuthLoginPollResponse {
+	raw, err := json.Marshal(cred)
+	if err != nil {
+		return pluginapi.AuthLoginPollResponse{
+			Status:  pluginapi.AuthLoginStatusError,
+			Message: err.Error(),
+		}
+	}
+	fields, _ := decodeFields(raw)
+	fields["type"] = models.ProviderName
+	storage, err := mergeCredential(fields, cred)
+	if err != nil {
+		return pluginapi.AuthLoginPollResponse{
+			Status:  pluginapi.AuthLoginStatusError,
+			Message: err.Error(),
+		}
+	}
+
+	suffix := fmt.Sprintf("%d", time.Now().Unix())
+	if len(state) >= 8 {
+		suffix = state[:8]
+	}
+	fileName := fmt.Sprintf("kiro4cpa-%s-%s.json", cred.AuthMethod, suffix)
+	label := firstNonEmpty(cred.Email, cred.ProfileArn, cred.AuthMethod, "Kiro")
+	auth := pluginapi.AuthData{
+		ID:               fileName,
+		FileName:         fileName,
+		Provider:         models.ProviderName,
+		Label:            label,
+		StorageJSON:      storage,
+		Metadata:         authMetadata(cred),
+		NextRefreshAfter: time.Now(),
+	}
+
+	return pluginapi.AuthLoginPollResponse{
+		Status:  pluginapi.AuthLoginStatusSuccess,
+		Message: "Kiro device login completed",
+		Auth:    auth,
+	}
 }
