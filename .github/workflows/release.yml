@@ -1,0 +1,67 @@
+name: Release Plugin
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Build Linux amd64
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p bin/dist
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -buildmode=c-shared -o kiro4cpa.so .
+          zip -9 "bin/dist/kiro4cpa_${VERSION}_linux_amd64.zip" kiro4cpa.so
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-dist
+          path: bin/dist/
+
+  build-darwin:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+      - name: Build Darwin arm64
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir -p bin/dist
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath -buildmode=c-shared -o kiro4cpa.dylib .
+          zip -9 "bin/dist/kiro4cpa_${VERSION}_darwin_arm64.zip" kiro4cpa.dylib
+      - uses: actions/upload-artifact@v4
+        with:
+          name: darwin-dist
+          path: bin/dist/
+
+  release:
+    needs: [build-linux, build-darwin]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Assemble Release Assets & Checksums
+        run: |
+          mkdir -p dist
+          find artifacts -name "*.zip" -exec cp {} dist/ \;
+          cd dist
+          sha256sum *.zip > checksums.txt
+          ls -la
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "plugins": [
+    {
+      "id": "kiro4cpa",
+      "name": "Kiro OAuth",
+      "description": "Kiro provider plugin for CLIProxyAPI, offering Claude Messages and OpenAI translation, full OAuth device flow, and usage quota monitoring.",
+      "author": "AkkunYo",
+      "repository": "https://github.com/AkkunYo/kiro4cpa-plugin",
+      "homepage": "https://github.com/AkkunYo/kiro4cpa-plugin",
+      "license": "MIT",
+      "tags": [
+        "Provider",
+        "OAuth",
+        "Kiro",
+        "Claude"
+      ]
+    }
+  ]
+}
