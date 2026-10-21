@@ -20,7 +20,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p bin/dist
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -buildmode=c-shared -o kiro4cpa.so .
+          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/AkkunYo/kiro4cpa-plugin/internal/kiro.Version=${VERSION}" -buildmode=c-shared -o kiro4cpa.so .
           zip -9 "bin/dist/kiro4cpa_${VERSION}_linux_amd64.zip" kiro4cpa.so
       - uses: actions/upload-artifact@v4
         with:
@@ -38,7 +38,7 @@ jobs:
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p bin/dist
-          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath -buildmode=c-shared -o kiro4cpa.dylib .
+          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/AkkunYo/kiro4cpa-plugin/internal/kiro.Version=${VERSION}" -buildmode=c-shared -o kiro4cpa.dylib .
           zip -9 "bin/dist/kiro4cpa_${VERSION}_darwin_arm64.zip" kiro4cpa.dylib
       - uses: actions/upload-artifact@v4
         with:

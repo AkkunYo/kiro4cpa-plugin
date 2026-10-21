@@ -52,7 +52,7 @@ func getRegistration() registration {
 		SchemaVersion: pluginabi.SchemaVersion,
 		Metadata: pluginapi.Metadata{
 			Name:             "Kiro",
-			Version:          "1.0.0",
+			Version:          Version,
 			Author:           "AkkunYo",
 			GitHubRepository: "https://github.com/AkkunYo/kiro4cpa-plugin",
 			Logo:             logoDataURI(),
