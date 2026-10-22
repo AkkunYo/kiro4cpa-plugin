@@ -90,7 +90,7 @@ func parseRequest(t *testing.T, provider, raw string) pluginapi.AuthParseRespons
 
 func TestAuthParseSchedulesImmediateRefreshWithoutCatalog(t *testing.T) {
 	resp := parseRequest(t, "kiro4cpa", kiroRsSocial)
-	if !resp.Handled || resp.Auth.Label != "a@b.c" || resp.Auth.Metadata["email"] != "a@b.c" || resp.Auth.Metadata[refreshIntervalKey] != float64(refreshIntervalSeconds) {
+	if !resp.Handled || resp.Auth.Label != "a@b.c (Social)" || resp.Auth.Metadata["email"] != "a@b.c" || resp.Auth.Metadata[refreshIntervalKey] != float64(refreshIntervalSeconds) {
 		t.Fatalf("got %+v", resp)
 	}
 	if resp.Auth.NextRefreshAfter.After(time.Now()) {
@@ -101,5 +101,27 @@ func TestAuthParseSchedulesImmediateRefreshWithoutCatalog(t *testing.T) {
 func TestAuthParseIgnoresOtherProviders(t *testing.T) {
 	if resp := parseRequest(t, "antigravity", kiroRsSocial); resp.Handled {
 		t.Fatal("claimed another provider's file")
+	}
+}
+
+// A top-level "provider" makes CPA panels treat the file as another provider,
+// so the identity provider is stored as kiroProvider.
+func TestIdentityProviderStoredAsKiroProvider(t *testing.T) {
+	for _, raw := range []string{
+		`{"type":"kiro4cpa","authMethod":"social","refreshToken":"r","provider":"Google"}`,
+		`{"type":"kiro4cpa","authMethod":"social","refreshToken":"r","kiroProvider":"Google"}`,
+	} {
+		cred, fields, err := decodeCredential([]byte(raw))
+		if err != nil || cred.Provider != ProviderGoogle {
+			t.Fatalf("%s: %+v %v", raw, cred, err)
+		}
+		storage, err := mergeCredential(fields, cred)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, _ := decodeFields(storage)
+		if _, has := out["provider"]; has || out["kiroProvider"] != ProviderGoogle || out["type"] != "kiro4cpa" {
+			t.Fatalf("%s: stored %v", raw, out)
+		}
 	}
 }

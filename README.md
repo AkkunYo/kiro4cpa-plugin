@@ -101,12 +101,20 @@ GET /v0/management/plugins/kiro4cpa/quota?auth_index=<auth-index>
 
 ## Web 登录授权
 
-插件以 **Kiro** 名称和内嵌品牌图标注册。在 CPA-Manager-Plus Web 端「登录授权」页面点击「开始 Kiro 登录」，即可发起 **AWS Builder ID** 设备授权：
+在管理面板「登录授权」页面点击 Kiro 登录，会在新标签页打开插件的登录页 `/v0/resource/plugins/kiro4cpa/connect`，在页面里选择登录方式：
 
-1. 插件向 AWS SSO OIDC 注册客户端并获取设备码，面板展示官方验证链接和用户码。
-2. 打开 AWS 官方页面完成授权；面板轮询登录状态，成功后由 CPA 保存凭据。
+| 方式 | 说明 |
+|---|---|
+| Builder ID | AWS 设备授权。打开 AWS 页面输入邮箱，确认授权码 |
+| Google / GitHub | 打开 Kiro 登录页选择 Google 或 GitHub。登录后浏览器会跳到打不开的 `127.0.0.1:3128` 页面，把地址栏里的完整地址粘贴回登录页 |
+| IAM Identity Center | 填写 `https://<目录>.awsapps.com/start` 和 Region，再走 AWS 设备授权 |
+| 导入凭据 | Social 或 IdC 的 refreshToken，或 Kiro API Key |
 
-此流程直接使用 AWS 官方验证页面。当前 Web 登录入口仅支持 Builder ID；Social、企业 IAM Identity Center、External IdP 和 API Key 凭据请按上方「导入凭据」说明保存为 JSON 文件。
+完成后面板会自动拿到结果，由 CPA 保存凭据。
+
+登录页的操作走 CPA 管理接口，需要管理密钥。如果面板登录时勾选了「记住密码」，并且面板和 CPA 用同一个地址打开，登录页会直接读取面板保存的密钥；否则会提示手动输入，输入的密钥不会保存。
+
+凭据文件按 `kiro4cpa-<登录方式>-<邮箱>.json` 命名，例如 `kiro4cpa-google-user@example.com.json`。拿不到邮箱时用账号 ID 的 hash，同一账号再次登录会覆盖原文件。
 
 ## 已知限制
 

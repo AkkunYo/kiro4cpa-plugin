@@ -1,7 +1,6 @@
 package kiro
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -19,6 +18,8 @@ import (
 )
 
 const (
+	// pluginID is the id CPA derives from the kiro4cpa-v<version>.so file name.
+	pluginID            = "kiro4cpa"
 	catalogKey          = "kiro4cpa_models"
 	refreshLead         = 10 * time.Minute
 	minRefreshDelay     = time.Minute
@@ -41,6 +42,7 @@ type registrationCapability struct {
 	ExecutorInputFormats  []string                     `json:"executor_input_formats,omitempty"`
 	ExecutorOutputFormats []string                     `json:"executor_output_formats,omitempty"`
 	QuotaProvider         bool                         `json:"quota_provider"`
+	ManagementAPI         bool                         `json:"management_api"`
 }
 
 type identifierResponse struct {
@@ -77,6 +79,8 @@ func getRegistration() registration {
 			ExecutorInputFormats:  []string{"claude"},
 			ExecutorOutputFormats: []string{"claude"},
 			QuotaProvider:         true,
+			// Serves the login method selection page and its actions.
+			ManagementAPI: true,
 		},
 	}
 }
@@ -159,6 +163,12 @@ func HandleMethod(method string, request []byte) (out []byte, err error) {
 	case pluginabi.MethodQuotaFetch:
 		return handleQuotaFetch(request)
 
+	case pluginabi.MethodManagementRegister:
+		return wire.OK(managementRoutes()), nil
+
+	case pluginabi.MethodManagementHandle:
+		return handleManagement(request)
+
 	default:
 		return wire.Error("unsupported_method", "method not supported yet: "+method), nil
 	}
@@ -202,7 +212,7 @@ func handleAuthParse(request []byte) ([]byte, error) {
 		Auth: pluginapi.AuthData{
 			Provider:         models.ProviderName,
 			FileName:         req.FileName,
-			Label:            firstNonEmpty(cred.Email, req.FileName),
+			Label:            authLabel(cred, req.FileName),
 			StorageJSON:      storage,
 			Metadata:         authMetadata(cred),
 			NextRefreshAfter: next,
@@ -406,68 +416,25 @@ func catalogFrom(fields map[string]any) ([]models.UpstreamModel, bool) {
 	return stored.Models, true
 }
 
+// loginSessionTTL matches the window CPA keeps an OAuth session pending.
+const loginSessionTTL = 30 * time.Minute
 
+// handleLoginStart only opens a session; the user picks a login method on the
+// connect page, which CPA's OAuth card opens in a new tab.
 func handleLoginStart(request []byte) ([]byte, error) {
 	var req pluginapi.AuthLoginStartRequest
 	if len(request) > 0 {
 		_ = json.Unmarshal(request, &req)
 	}
-
-	region := defaultSSORegion
-	startURL := builderStartURL
-
-	oidc := newSSOOIDCClientFn()
-	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
-	defer cancel()
-
-	regResp, err := oidc.RegisterClient(ctx, region)
-	if err != nil {
-		return wire.Error("login_register_failed", "Failed to register AWS OIDC client: "+err.Error()), nil
-	}
-
-	authResp, err := oidc.StartDeviceAuth(ctx, regResp.ClientID, regResp.ClientSecret, startURL, region)
-	if err != nil {
-		return wire.Error("login_device_failed", "Failed to start AWS device authorization: "+err.Error()), nil
-	}
-
-	authURL := strings.TrimSpace(authResp.VerificationURIComplete)
-	if authURL == "" {
-		authURL = strings.TrimSpace(authResp.VerificationURI)
-	}
-
-	expiresIn := authResp.ExpiresIn
-	if expiresIn <= 0 {
-		expiresIn = 600
-	}
-
-	session, err := createLoginSession(time.Duration(expiresIn) * time.Second)
+	session, err := createLoginSession(loginSessionTTL)
 	if err != nil {
 		return nil, err
 	}
-	session.ClientID = regResp.ClientID
-	session.ClientSecret = regResp.ClientSecret
-	session.DeviceCode = authResp.DeviceCode
-	session.UserCode = authResp.UserCode
-	session.VerifyURL = authURL
-	session.Region = region
-	session.StartURL = startURL
-
-	metadata := map[string]any{
-		"clientId":     regResp.ClientID,
-		"clientSecret": regResp.ClientSecret,
-		"deviceCode":   authResp.DeviceCode,
-		"userCode":     authResp.UserCode,
-		"region":       region,
-		"startURL":     startURL,
-		"authMethod":   "builder-id",
-	}
-
 	return wire.OK(pluginapi.AuthLoginStartResponse{
 		Provider:  models.ProviderName,
-		URL:       authURL,
+		URL:       connectPageURL(session.State),
 		State:     session.State,
 		ExpiresAt: session.ExpiresAt,
-		Metadata:  metadata,
 	}), nil
 }
 
@@ -476,94 +443,43 @@ func handleLoginPoll(request []byte) ([]byte, error) {
 	if err := json.Unmarshal(request, &req); err != nil {
 		return nil, err
 	}
-
-	meta := req.Metadata
-	clientID, _ := meta["clientId"].(string)
-	clientSecret, _ := meta["clientSecret"].(string)
-	deviceCode, _ := meta["deviceCode"].(string)
-	region, _ := meta["region"].(string)
-	authMethod, _ := meta["authMethod"].(string)
-
-	session, hasSession := getLoginSession(req.State)
-	if hasSession {
-		if clientID == "" {
-			clientID = session.ClientID
-		}
-		if clientSecret == "" {
-			clientSecret = session.ClientSecret
-		}
-		if deviceCode == "" {
-			deviceCode = session.DeviceCode
-		}
-		if region == "" {
-			region = session.Region
-		}
-		if session.Completed != nil {
-			return wire.OK(buildLoginSuccessResponse(*session.Completed, session.State)), nil
-		}
-		if session.Error != "" {
-			return wire.OK(pluginapi.AuthLoginPollResponse{
-				Status:  pluginapi.AuthLoginStatusError,
-				Message: session.Error,
-			}), nil
-		}
-	}
-
-	if region == "" {
-		region = defaultSSORegion
-	}
-	if authMethod == "" {
-		authMethod = "builder-id"
-	}
-
-	if clientID == "" || clientSecret == "" || deviceCode == "" {
+	session, ok := getLoginSession(req.State)
+	switch {
+	case !ok:
 		return wire.OK(pluginapi.AuthLoginPollResponse{
 			Status:  pluginapi.AuthLoginStatusError,
-			Message: "Missing device-code context in login session",
+			Message: errSessionNotFound.Error(),
 		}), nil
-	}
-
-	oidc := newSSOOIDCClientFn()
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	tok, err := oidc.CreateToken(ctx, clientID, clientSecret, deviceCode, region)
-	if err != nil {
-		if errors.Is(err, ErrAuthPending) || errors.Is(err, ErrSlowDown) {
-			return wire.OK(pluginapi.AuthLoginPollResponse{
-				Status:  pluginapi.AuthLoginStatusPending,
-				Message: "Waiting for user authorization",
-			}), nil
-		}
-		if hasSession {
-			failLoginSession(req.State, err.Error())
-		}
+	case session.Completed != nil:
+		return wire.OK(buildLoginSuccessResponse(*session.Completed, session.State)), nil
+	case session.Error != "":
 		return wire.OK(pluginapi.AuthLoginPollResponse{
 			Status:  pluginapi.AuthLoginStatusError,
-			Message: err.Error(),
+			Message: session.Error,
+		}), nil
+	case session.Method == "":
+		return wire.OK(pluginapi.AuthLoginPollResponse{
+			Status:  pluginapi.AuthLoginStatusPending,
+			Message: "等待在 Kiro 登录页选择登录方式",
 		}), nil
 	}
-
-	cred := Credential{
-		AuthMethod:   authMethod,
-		AccessToken:  tok.AccessToken,
-		RefreshToken: tok.RefreshToken,
-		ClientID:     clientID,
-		ClientSecret: clientSecret,
-		Region:       region,
-		AuthRegion:   region,
-		ProfileArn:   tok.ProfileArn,
-		ExpiresAt:    time.Now().UTC().Add(time.Duration(tok.ExpiresIn) * time.Second).Format(time.RFC3339),
-	}
-
-	if hasSession {
-		completeLoginSession(req.State, &cred, "Kiro device login completed")
-	}
-
-	return wire.OK(buildLoginSuccessResponse(cred, req.State)), nil
+	return wire.OK(pluginapi.AuthLoginPollResponse{
+		Status:  pluginapi.AuthLoginStatusPending,
+		Message: "等待完成 Kiro 授权",
+	}), nil
 }
 
 func buildLoginSuccessResponse(cred Credential, state string) pluginapi.AuthLoginPollResponse {
+	now := time.Now()
+	cred = resolveAccountIdentity(cred.normalized(), config.Get(), now)
+	// A repeated poll must reuse this identity: a rotated refresh token would
+	// fail a second lookup and fall back to a different file name.
+	updateLoginSession(state, func(s *LoginSession) {
+		if s.Completed != nil {
+			resolved := cred
+			s.Completed = &resolved
+		}
+	})
 	raw, err := json.Marshal(cred)
 	if err != nil {
 		return pluginapi.AuthLoginPollResponse{
@@ -581,12 +497,8 @@ func buildLoginSuccessResponse(cred Credential, state string) pluginapi.AuthLogi
 		}
 	}
 
-	suffix := fmt.Sprintf("%d", time.Now().Unix())
-	if len(state) >= 8 {
-		suffix = state[:8]
-	}
-	fileName := fmt.Sprintf("kiro4cpa-%s-%s.json", cred.AuthMethod, suffix)
-	label := firstNonEmpty(cred.Email, cred.ProfileArn, cred.AuthMethod, "Kiro")
+	fileName := authFileName(cred, state, now)
+	label := authLabel(cred, cred.ProfileArn)
 	auth := pluginapi.AuthData{
 		ID:               fileName,
 		FileName:         fileName,

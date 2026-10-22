@@ -7,9 +7,15 @@ import (
 	"time"
 )
 
+// LoginSession tracks one CPA login attempt from method selection to a saved
+// credential. The connect page drives it through management routes.
 type LoginSession struct {
-	State        string
-	ExpiresAt    time.Time
+	State     string
+	ExpiresAt time.Time
+	// Method is the login method the user picked; empty until they choose.
+	Method string
+
+	// Device flow (Builder ID / IdC).
 	DeviceCode   string
 	UserCode     string
 	VerifyURL    string
@@ -18,9 +24,14 @@ type LoginSession struct {
 	Region       string
 	StartURL     string
 	Polling      bool
-	Completed    *Credential
-	Message      string
-	Error        string
+
+	// Social (Google / GitHub) PKCE flow.
+	CodeVerifier string
+	SocialState  string
+
+	Completed *Credential
+	Message   string
+	Error     string
 }
 
 var (
@@ -47,6 +58,8 @@ func createLoginSession(ttl time.Duration) (*LoginSession, error) {
 	return session, nil
 }
 
+// getLoginSession returns a copy, so callers never read fields that a
+// background poller is writing under the lock.
 func getLoginSession(state string) (*LoginSession, bool) {
 	loginSessionsMu.RLock()
 	defer loginSessionsMu.RUnlock()
@@ -54,31 +67,25 @@ func getLoginSession(state string) (*LoginSession, bool) {
 	if !ok || time.Now().UTC().After(s.ExpiresAt) {
 		return nil, false
 	}
-	return s, true
+	snapshot := *s
+	return &snapshot, true
 }
 
 func completeLoginSession(state string, cred *Credential, message string) bool {
-	loginSessionsMu.Lock()
-	defer loginSessionsMu.Unlock()
-	s, ok := loginSessions[state]
-	if !ok || time.Now().UTC().After(s.ExpiresAt) {
-		return false
-	}
-	s.Completed = cred
-	s.Message = message
-	s.Error = ""
-	return true
+	return updateLoginSession(state, func(s *LoginSession) {
+		s.Completed = cred
+		s.Message = message
+		s.Error = ""
+		s.Polling = false
+		s.CodeVerifier = ""
+	})
 }
 
 func failLoginSession(state string, errMessage string) bool {
-	loginSessionsMu.Lock()
-	defer loginSessionsMu.Unlock()
-	s, ok := loginSessions[state]
-	if !ok || time.Now().UTC().After(s.ExpiresAt) {
-		return false
-	}
-	s.Error = errMessage
-	return true
+	return updateLoginSession(state, func(s *LoginSession) {
+		s.Error = errMessage
+		s.Polling = false
+	})
 }
 
 func updateLoginSession(state string, fn func(s *LoginSession)) bool {

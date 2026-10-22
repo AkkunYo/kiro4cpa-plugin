@@ -20,23 +20,30 @@ const (
 
 // Credential covers the kiro.rs, aiclient2api and CPA spellings of a Kiro credential.
 type Credential struct {
-	AccessToken   string `json:"accessToken,omitempty"`
-	RefreshToken  string `json:"refreshToken,omitempty"`
-	ProfileArn    string `json:"profileArn,omitempty"`
-	ExpiresAt     string `json:"expiresAt,omitempty"`
-	AuthMethod    string `json:"authMethod,omitempty"`
-	Provider      string `json:"provider,omitempty"`
-	Region        string `json:"region,omitempty"`
-	AuthRegion    string `json:"authRegion,omitempty"`
-	IdcRegion     string `json:"idcRegion,omitempty"`
-	APIRegion     string `json:"apiRegion,omitempty"`
-	ClientID      string `json:"clientId,omitempty"`
-	ClientSecret  string `json:"clientSecret,omitempty"`
-	TokenEndpoint string `json:"tokenEndpoint,omitempty"`
-	Scopes        string `json:"scopes,omitempty"`
-	KiroAPIKey    string `json:"kiroApiKey,omitempty"`
-	MachineID     string `json:"machineId,omitempty"`
-	Email         string `json:"email,omitempty"`
+	AccessToken  string `json:"accessToken,omitempty"`
+	RefreshToken string `json:"refreshToken,omitempty"`
+	ProfileArn   string `json:"profileArn,omitempty"`
+	ExpiresAt    string `json:"expiresAt,omitempty"`
+	AuthMethod   string `json:"authMethod,omitempty"`
+	// Provider is the identity provider (BuilderId, Google, ...). It is stored as
+	// kiroProvider because CPA panels read a top-level "provider" as the CPA
+	// provider and would no longer match the file to its kiro4cpa credential.
+	Provider string `json:"kiroProvider,omitempty"`
+	// LegacyProvider reads the kiro.rs / v1.0.5 spelling; normalized moves it.
+	LegacyProvider string `json:"provider,omitempty"`
+	Region         string `json:"region,omitempty"`
+	AuthRegion     string `json:"authRegion,omitempty"`
+	IdcRegion      string `json:"idcRegion,omitempty"`
+	APIRegion      string `json:"apiRegion,omitempty"`
+	ClientID       string `json:"clientId,omitempty"`
+	ClientSecret   string `json:"clientSecret,omitempty"`
+	TokenEndpoint  string `json:"tokenEndpoint,omitempty"`
+	Scopes         string `json:"scopes,omitempty"`
+	KiroAPIKey     string `json:"kiroApiKey,omitempty"`
+	MachineID      string `json:"machineId,omitempty"`
+	Email          string `json:"email,omitempty"`
+	UserID         string `json:"userId,omitempty"`
+	StartURL       string `json:"startUrl,omitempty"`
 }
 
 func decodeFields(raw []byte) (map[string]any, error) {
@@ -91,6 +98,8 @@ func (c Credential) normalized() Credential {
 		}
 	}
 	c.AuthRegion = firstNonEmpty(c.AuthRegion, c.IdcRegion, c.Region, defaultRegion)
+	c.Provider = firstNonEmpty(c.Provider, c.LegacyProvider)
+	c.LegacyProvider = ""
 	return c
 }
 
@@ -176,6 +185,9 @@ func mergeCredential(fields map[string]any, cred Credential) ([]byte, error) {
 	for k, v := range overlay {
 		merged[k] = v
 	}
+	// The identity provider lives in kiroProvider; a top-level "provider"
+	// makes CPA panels treat the file as a different provider.
+	delete(merged, "provider")
 	return json.Marshal(merged)
 }
 

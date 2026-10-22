@@ -21,3 +21,6 @@ kiro*.json
 .idea/
 .vscode/
 .DS_Store
+
+# Local tool cache
+.codegraph/
