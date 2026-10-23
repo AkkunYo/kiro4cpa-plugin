@@ -15,7 +15,7 @@ const usageLimitsBody = `{"daysUntilReset":10,"nextDateReset":1793491200.0,
  "subscriptionInfo":{"subscriptionTitle":"KIRO FREE"},
  "usageBreakdownList":[{"resourceType":"CREDIT","displayName":"Credit","unit":"INVOCATIONS",
    "currentUsageWithPrecision":2.79,"usageLimitWithPrecision":50.0,"nextDateReset":1793491200.0,
-   "freeTrialInfo":{"currentUsageWithPrecision":10,"usageLimitWithPrecision":40,"freeTrialExpiry":1794000000},
+   "freeTrialInfo":{"currentUsageWithPrecision":10,"usageLimitWithPrecision":40,"freeTrialExpiry":1794000000,"freeTrialStatus":"ACTIVE"},
    "bonuses":[{"displayName":"Welcome","currentUsage":0,"usageLimit":0}]}]}`
 
 func quotaRequest() quotaFetchRPC {
@@ -34,7 +34,8 @@ func TestQuotaFetchMapsUsageLimits(t *testing.T) {
 	if resp.Subscription == nil || resp.Subscription.Plan != "KIRO FREE" {
 		t.Fatalf("subscription %+v", resp.Subscription)
 	}
-	if len(resp.Summary) != 2 || resp.Summary[0].Key != "credit_used" || resp.Summary[0].Value != 2.79 || resp.Summary[1].Value != 50 {
+	// The summary adds the active free trial, as kiro.rs does: 2.79+10 / 50+40.
+	if len(resp.Summary) != 2 || resp.Summary[0].Key != "credit_used" || resp.Summary[0].Value != 12.79 || resp.Summary[1].Value != 90 {
 		t.Fatalf("summary %+v", resp.Summary)
 	}
 	if len(resp.Groups) != 1 || resp.Groups[0].DisplayName != "Credit" || len(resp.Groups[0].Buckets) != 2 {
@@ -90,5 +91,36 @@ func TestQuotaDescribeAndRegistration(t *testing.T) {
 	id := callHandler[identifierResponse](t, pluginabi.MethodQuotaIdentifier, map[string]any{})
 	if id.Identifier != "kiro4cpa" {
 		t.Fatalf("identifier %+v", id)
+	}
+}
+
+func TestQuotaIgnoresExpiredTrialAndBonus(t *testing.T) {
+	// Shape returned on 2026-10-24 for a KIRO FREE account whose trial ended in April.
+	var l usageLimits
+	if err := json.Unmarshal([]byte(`{"subscriptionInfo":{"subscriptionTitle":"KIRO FREE"},
+	 "usageBreakdownList":[{"resourceType":"CREDIT","displayName":"Credit","currentUsageWithPrecision":0,"usageLimitWithPrecision":50,
+	   "freeTrialInfo":{"freeTrialStatus":"EXPIRED","currentUsageWithPrecision":0,"usageLimitWithPrecision":500,"freeTrialExpiry":1776408039.159},
+	   "bonuses":[{"displayName":"Old","status":"EXPIRED","currentUsage":0,"usageLimit":100},
+	              {"displayName":"No status","currentUsage":0,"usageLimit":30},
+	              {"displayName":"Launch","status":"ACTIVE","currentUsage":5,"usageLimit":20}]}]}`), &l); err != nil {
+		t.Fatal(err)
+	}
+	resp := quotaResponse(l)
+	if resp.Summary[0].Value != 5 || resp.Summary[1].Value != 70 {
+		t.Fatalf("summary %+v", resp.Summary)
+	}
+	buckets := resp.Groups[0].Buckets
+	if len(buckets) != 2 || buckets[0].Window != "monthly" || buckets[1].Window != "Launch" || buckets[1].Description != "5 / 20" {
+		t.Fatalf("buckets %+v", buckets)
+	}
+}
+
+func TestQuotaWithoutTrial(t *testing.T) {
+	var l usageLimits
+	_ = json.Unmarshal([]byte(`{"subscriptionInfo":{"subscriptionTitle":"KIRO PRO+"},
+	 "usageBreakdownList":[{"resourceType":"CREDIT","displayName":"Credit","currentUsageWithPrecision":654.88,"usageLimitWithPrecision":2000}]}`), &l)
+	resp := quotaResponse(l)
+	if resp.Subscription.Plan != "KIRO PRO+" || resp.Summary[0].Value != 654.88 || resp.Summary[1].Value != 2000 || len(resp.Groups[0].Buckets) != 1 {
+		t.Fatalf("resp %+v", resp)
 	}
 }

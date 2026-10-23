@@ -1,6 +1,7 @@
 package kiro
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -59,4 +60,14 @@ func kindOf(status int, body string) ErrorKind {
 	default:
 		return ErrUnknown
 	}
+}
+
+// Kiro answers an account it has suspended with this 403 on every call, while
+// its refresh token still works; nothing else tells the panel about it.
+const blockedAccountMessage = "User is not authorized to make this call"
+
+func isAccountBlocked(err error) bool {
+	var up *UpstreamError
+	return errors.As(err, &up) && up.Status == 403 && up.Kind == ErrForbidden &&
+		strings.Contains(up.Body, blockedAccountMessage)
 }

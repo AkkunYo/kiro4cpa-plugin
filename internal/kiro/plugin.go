@@ -203,9 +203,18 @@ func handleAuthParse(request []byte) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	next := time.Now()
-	if _, ok := catalogFrom(fields); ok {
-		next = scheduledRefresh(cred, next)
+	now := time.Now()
+	next := now
+	disabled, _ := fields["disabled"].(bool)
+	switch _, hasCatalog := catalogFrom(fields); {
+	case hasCatalog:
+		next = scheduledRefresh(cred, now)
+	case disabled:
+		// CPA re-parses the file after every refresh write and, for a disabled
+		// credential, takes this time instead of keeping its own schedule.
+		// "Now" would refresh it again at once, in a loop, for an account
+		// whose catalogue Kiro keeps refusing.
+		next = now.Add(longRefreshInterval)
 	}
 	return wire.OK(pluginapi.AuthParseResponse{
 		Handled: true,
@@ -251,9 +260,23 @@ func handleAuthRefresh(request []byte) ([]byte, error) {
 		return nil, err
 	}
 
-	if catalog, errList := fetchModelCatalog(refreshed, cfg, req.HostCallbackID); errList == nil {
+	catalog, errList := fetchModelCatalog(refreshed, cfg, req.HostCallbackID)
+	switch {
+	case errList == nil:
 		fields = withCatalog(fields, catalog, now)
-	} else {
+		if blockedNoteSet(fields) {
+			// Kiro serves the account again; the user re-enables it in the panel.
+			delete(fields, blockedAtKey)
+			if note, _ := fields["note"].(string); note == blockedNote {
+				// CPA merges metadata over the file, so clear rather than delete.
+				fields["note"] = ""
+				metadata["note"] = ""
+			}
+		}
+	case isAccountBlocked(errList):
+		log.Printf("kiro4cpa: Kiro rejected account %s, disabling it: %v", req.AuthID, errList)
+		fields, metadata = markAccountBlocked(fields, metadata, now)
+	default:
 		log.Printf("kiro4cpa: listing models for %s failed, keeping stored catalogue: %v", req.AuthID, errList)
 	}
 	storage, err := mergeCredential(fields, refreshed)

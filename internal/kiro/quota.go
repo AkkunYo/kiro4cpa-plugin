@@ -41,6 +41,7 @@ type usageAllowed struct {
 	Used   float64 `json:"currentUsageWithPrecision"`
 	Limit  float64 `json:"usageLimitWithPrecision"`
 	Expiry float64 `json:"freeTrialExpiry"`
+	Status string  `json:"freeTrialStatus"`
 }
 
 type usageBonus struct {
@@ -48,7 +49,12 @@ type usageBonus struct {
 	Used        float64 `json:"currentUsage"`
 	Limit       float64 `json:"usageLimit"`
 	ExpiresAt   float64 `json:"expiresAt"`
+	Status      string  `json:"status"`
 }
+
+// Kiro keeps a used-up or expired free trial and bonus in the response with
+// status EXPIRED. Like kiro.rs, only ACTIVE ones count; a missing status does not.
+const quotaActive = "ACTIVE"
 
 func handleQuotaDescribe() ([]byte, error) {
 	return wire.OK(pluginapi.QuotaDescribeResponse{SupportedProviders: []string{models.ProviderName}, DisplayName: "Kiro"}), nil
@@ -145,19 +151,23 @@ func quotaResponse(l usageLimits) pluginapi.QuotaFetchResponse {
 	for _, it := range l.UsageBreakdownList {
 		name := firstNonEmpty(it.DisplayName, it.ResourceType, "Credit")
 		key := strings.ToLower(firstNonEmpty(it.ResourceType, "credit"))
-		out.Summary = append(out.Summary,
-			pluginapi.QuotaMetric{Key: key + "_used", Label: name + " 已用", Value: it.Used},
-			pluginapi.QuotaMetric{Key: key + "_limit", Label: name + " 上限", Value: it.Limit},
-		)
+		used, limit := it.Used, it.Limit
 		buckets := []pluginapi.QuotaBucket{quotaBucket("monthly", it.Used, it.Limit, it.NextDateReset)}
-		if t := it.FreeTrialInfo; t != nil && t.Limit > 0 {
+		if t := it.FreeTrialInfo; t != nil && t.Status == quotaActive && t.Limit > 0 {
+			used, limit = used+t.Used, limit+t.Limit
 			buckets = append(buckets, quotaBucket("free_trial", t.Used, t.Limit, t.Expiry))
 		}
 		for _, b := range it.Bonuses {
-			if b.Limit > 0 {
+			if b.Status == quotaActive && b.Limit > 0 {
+				used, limit = used+b.Used, limit+b.Limit
 				buckets = append(buckets, quotaBucket(firstNonEmpty(b.DisplayName, "bonus"), b.Used, b.Limit, b.ExpiresAt))
 			}
 		}
+		// The summary is the total usable credit, as kiro.rs reports it.
+		out.Summary = append(out.Summary,
+			pluginapi.QuotaMetric{Key: key + "_used", Label: name + " 已用", Value: used},
+			pluginapi.QuotaMetric{Key: key + "_limit", Label: name + " 上限", Value: limit},
+		)
 		out.Groups = append(out.Groups, pluginapi.QuotaGroup{DisplayName: name, Buckets: buckets})
 	}
 	return out

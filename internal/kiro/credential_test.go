@@ -2,6 +2,7 @@ package kiro
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -123,5 +124,15 @@ func TestIdentityProviderStoredAsKiroProvider(t *testing.T) {
 		if _, has := out["provider"]; has || out["kiroProvider"] != ProviderGoogle || out["type"] != "kiro4cpa" {
 			t.Fatalf("%s: stored %v", raw, out)
 		}
+	}
+}
+
+// CPA re-parses a file after each refresh write and takes NextRefreshAfter from
+// the parse for a disabled credential. An immediate time there looped refreshes.
+func TestAuthParseDoesNotRefreshDisabledCredentialAtOnce(t *testing.T) {
+	disabled := strings.Replace(kiroRsSocial, `"disabled":false`, `"disabled":true`, 1)
+	resp := parseRequest(t, "kiro4cpa", disabled)
+	if wait := time.Until(resp.Auth.NextRefreshAfter); wait < 23*time.Hour {
+		t.Fatalf("disabled credential refreshes in %v", wait)
 	}
 }
