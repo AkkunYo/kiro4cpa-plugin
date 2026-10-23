@@ -286,6 +286,7 @@ func handleModelForAuth(request []byte) ([]byte, error) {
 			infos = models.ToModelInfos(catalog)
 		}
 	}
+	infos = withoutGlobalExclusions(infos, req.Host)
 	return wire.OK(pluginapi.ModelResponse{Provider: models.ProviderName, Models: infos}), nil
 }
 
