@@ -4,17 +4,13 @@
     {
       "id": "kiro4cpa",
       "name": "Kiro OAuth",
-      "description": "Kiro provider plugin for CLIProxyAPI, offering Claude Messages and OpenAI translation, full OAuth device flow, and usage quota monitoring.",
+      "description": "Kiro provider for CLIProxyAPI with a built-in sign-in page (AWS Builder ID, Google/GitHub, IAM Identity Center, credential import), per-account model catalogues, quota reporting, and automatic handling of blocked accounts.",
       "author": "AkkunYo",
       "repository": "https://github.com/AkkunYo/kiro4cpa-plugin",
+      "logo": "https://raw.githubusercontent.com/AkkunYo/kiro4cpa-plugin/main/assets/kiro-logo.svg",
       "homepage": "https://github.com/AkkunYo/kiro4cpa-plugin",
       "license": "MIT",
-      "tags": [
-        "Provider",
-        "OAuth",
-        "Kiro",
-        "Claude"
-      ]
+      "tags": ["Provider", "OAuth", "Kiro", "Claude", "Quota"]
     }
   ]
 }

@@ -9,57 +9,87 @@ permissions:
   contents: write
 
 jobs:
-  build-linux:
+  test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
-      - name: Build Linux amd64
-        run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          mkdir -p bin/dist
-          CGO_ENABLED=1 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags "-s -w -X github.com/AkkunYo/kiro4cpa-plugin/internal/kiro.Version=${VERSION}" -buildmode=c-shared -o kiro4cpa.so .
-          zip -9 "bin/dist/kiro4cpa_${VERSION}_linux_amd64.zip" kiro4cpa.so
-      - uses: actions/upload-artifact@v4
-        with:
-          name: linux-dist
-          path: bin/dist/
+          go-version-file: go.mod
+          cache: true
+      - name: gofmt
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./... -cover
 
-  build-darwin:
-    runs-on: macos-latest
+  build:
+    name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: test
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-latest,    goos: linux,   goarch: amd64, lib: kiro4cpa.so }
+          - { runner: ubuntu-24.04-arm, goos: linux,   goarch: arm64, lib: kiro4cpa.so }
+          - { runner: macos-latest,     goos: darwin,  goarch: arm64, lib: kiro4cpa.dylib, cc: 'clang -arch arm64' }
+          - { runner: macos-latest,     goos: darwin,  goarch: amd64, lib: kiro4cpa.dylib, cc: 'clang -arch x86_64' }
+          - { runner: windows-latest,   goos: windows, goarch: amd64, lib: kiro4cpa.dll }
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: '1.26'
-      - name: Build Darwin arm64
+          go-version-file: go.mod
+          cache: true
+      - name: Build
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: '1'
+          CC: ${{ matrix.cc }}
         run: |
+          set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
-          mkdir -p bin/dist
-          CGO_ENABLED=1 GOOS=darwin GOARCH=arm64 go build -trimpath -ldflags "-s -w -X github.com/AkkunYo/kiro4cpa-plugin/internal/kiro.Version=${VERSION}" -buildmode=c-shared -o kiro4cpa.dylib .
-          zip -9 "bin/dist/kiro4cpa_${VERSION}_darwin_arm64.zip" kiro4cpa.dylib
+          go build -trimpath -buildmode=c-shared \
+            -ldflags "-s -w -X github.com/AkkunYo/kiro4cpa-plugin/internal/kiro.Version=${VERSION}" \
+            -o "${{ matrix.lib }}" .
+          test -s "${{ matrix.lib }}"
+          # The linker silently drops an -X that names a missing symbol, so the
+          # stamped version must be read back from the binary. macOS strings
+          # fails under pipefail once grep exits early, so grep the file.
+          grep -aFq "$VERSION" "${{ matrix.lib }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: darwin-dist
-          path: bin/dist/
+          name: lib-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: ${{ matrix.lib }}
+          if-no-files-found: error
 
   release:
-    needs: [build-linux, build-darwin]
+    needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Assemble Release Assets & Checksums
+      - name: Package store archives
         run: |
+          set -euo pipefail
+          VERSION="${GITHUB_REF_NAME#v}"
           mkdir -p dist
-          find artifacts -name "*.zip" -exec cp {} dist/ \;
+          for dir in artifacts/lib-*; do
+            target="$(basename "$dir")"
+            rest="${target#lib-}"
+            goos="${rest%-*}"
+            goarch="${rest##*-}"
+            zip -9 -j "dist/kiro4cpa_${VERSION}_${goos}_${goarch}.zip" "$dir"/*
+          done
           cd dist
           sha256sum *.zip > checksums.txt
-          ls -la
+          cat checksums.txt
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:

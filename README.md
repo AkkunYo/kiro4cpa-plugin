@@ -1,5 +1,7 @@
 # kiro4cpa-plugin
 
+中文 | [English](./README.en.md)
+
 [CLIProxyAPI](https://github.com/router-for-me/CLIProxyAPI)（CPA）v8 的 Kiro provider 插件。以原生 c-shared 插件的形式加载，把 Kiro 账号接入 CPA，对外提供 Claude Messages、OpenAI Chat Completions / Responses 接口。
 
 > 非官方项目，与 AWS / Kiro 无关联。请遵守 Kiro 的服务条款。
@@ -119,7 +121,7 @@ GET /v0/management/plugins/kiro4cpa/quota?auth_index=<auth-index>
 ## 已知限制
 
 - 实际测试过的有 Social 账号与 Builder ID 设备流；IdC、External IdP、API Key 按协议实现
-- 只测试过 linux/amd64 与 darwin/arm64
+- 发布产物覆盖 linux/amd64、linux/arm64、darwin/amd64、darwin/arm64、windows/amd64；实际跑通过的是 linux/amd64 与 darwin/arm64
 
 ## 致谢
 
