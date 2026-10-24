@@ -16,8 +16,29 @@ import (
 	"github.com/router-for-me/CLIProxyAPI/v8/sdk/pluginapi"
 )
 
+// resetLimiter clears the process-wide limiter. Most executor tests share one
+// auth ID, so parking and pacing state would otherwise leak between them.
+func resetLimiter(t *testing.T) {
+	t.Helper()
+	clear := func() {
+		limiter.mu.Lock()
+		limiter.states = make(map[string]*credentialState)
+		limiter.now = time.Now
+		limiter.sleep = func(time.Duration) {}
+		limiter.mu.Unlock()
+	}
+	clear()
+	t.Cleanup(func() {
+		clear()
+		limiter.mu.Lock()
+		limiter.sleep = time.Sleep
+		limiter.mu.Unlock()
+	})
+}
+
 func stubHTTP(t *testing.T, fn func(hostapi.HTTPRequest) (*hostapi.HTTPResponse, error)) *[]hostapi.HTTPRequest {
 	t.Helper()
+	resetLimiter(t)
 	var seen []hostapi.HTTPRequest
 	orig := hostHTTPDo
 	hostHTTPDo = func(r hostapi.HTTPRequest) (*hostapi.HTTPResponse, error) {

@@ -55,7 +55,7 @@ func handleExecute(request []byte) ([]byte, error) {
 		return errEnv, err
 	}
 	resp, err := withRefresh(req, cred, func(c Credential) (*hostapi.HTTPResponse, error) {
-		return postGenerate(req.HostCallbackID, c, conv, config.Get())
+		return postGenerate(req.AuthID, req.HostCallbackID, c, conv, config.Get())
 	})
 	if err != nil {
 		return upstreamErrorEnvelope(err), nil
@@ -123,7 +123,12 @@ func generateRequest(callbackID string, cred Credential, conv convertedRequest, 
 	}, nil
 }
 
-func postGenerate(callbackID string, cred Credential, conv convertedRequest, cfg config.PluginConfig) (*hostapi.HTTPResponse, error) {
+// postGenerate paces and parks per credential. It sits below withRefresh so the
+// retry after a token refresh is paced as its own request.
+func postGenerate(authID, callbackID string, cred Credential, conv convertedRequest, cfg config.PluginConfig) (*hostapi.HTTPResponse, error) {
+	if err := admitCredential(authID, cred, cfg); err != nil {
+		return nil, err
+	}
 	httpReq, err := generateRequest(callbackID, cred, conv, cfg)
 	if err != nil {
 		return nil, err
@@ -133,7 +138,9 @@ func postGenerate(callbackID string, cred Credential, conv convertedRequest, cfg
 		return nil, fmt.Errorf("kiro request: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, classifyUpstream(resp.StatusCode, resp.Body)
+		upErr := classifyUpstream(resp.StatusCode, resp.Body)
+		recordUpstreamFailure(authID, upErr, cfg)
+		return nil, upErr
 	}
 	return resp, nil
 }

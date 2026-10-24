@@ -24,6 +24,7 @@ type streamStub struct {
 
 func stubStream(t *testing.T, s *streamStub) *streamStub {
 	t.Helper()
+	resetLimiter(t)
 	s.closed = make(chan string, 1)
 	o1, o2, o3, o4, o5 := hostHTTPDoStream, hostStreamRead, hostHTTPStreamEnd, hostStreamEmit, hostStreamClose
 	hostHTTPDoStream = func(hostapi.HTTPRequest) (*hostapi.HTTPStreamResponse, error) {

@@ -21,7 +21,7 @@ func handleExecuteStream(request []byte) ([]byte, error) {
 		return wire.ErrorStatus("invalid_request", "missing stream_id", http.StatusBadRequest, false), nil
 	}
 	upstream, err := withRefresh(req, cred, func(c Credential) (string, error) {
-		return openGenerateStream(req.HostCallbackID, c, conv, config.Get())
+		return openGenerateStream(req.AuthID, req.HostCallbackID, c, conv, config.Get())
 	})
 	if err != nil {
 		return upstreamErrorEnvelope(err), nil
@@ -32,7 +32,12 @@ func handleExecuteStream(request []byte) ([]byte, error) {
 	}{}), nil
 }
 
-func openGenerateStream(callbackID string, cred Credential, conv convertedRequest, cfg config.PluginConfig) (string, error) {
+// openGenerateStream paces and parks per credential like postGenerate, before
+// the stream is opened, so a parked credential costs no upstream round trip.
+func openGenerateStream(authID, callbackID string, cred Credential, conv convertedRequest, cfg config.PluginConfig) (string, error) {
+	if err := admitCredential(authID, cred, cfg); err != nil {
+		return "", err
+	}
 	httpReq, err := generateRequest(callbackID, cred, conv, cfg)
 	if err != nil {
 		return "", err
@@ -51,7 +56,9 @@ func openGenerateStream(callbackID string, cred Credential, conv convertedReques
 		}
 		_ = hostHTTPStreamEnd(resp.StreamID)
 	}
-	return "", classifyUpstream(resp.StatusCode, body)
+	upErr := classifyUpstream(resp.StatusCode, body)
+	recordUpstreamFailure(authID, upErr, cfg)
+	return "", upErr
 }
 
 func pumpStream(upstream, streamID string, conv convertedRequest) {

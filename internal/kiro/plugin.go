@@ -64,6 +64,9 @@ func getRegistration() registration {
 				{Name: "client_version", Type: pluginapi.ConfigFieldTypeString, Description: "Kiro IDE version reported in User-Agent"},
 				{Name: "os_version", Type: pluginapi.ConfigFieldTypeString, Description: "OS reported in User-Agent, e.g. darwin#24.6.0"},
 				{Name: "node_version", Type: pluginapi.ConfigFieldTypeString, Description: "Node.js version reported in User-Agent"},
+				{Name: "min_token_interval", Type: pluginapi.ConfigFieldTypeString, Description: "Minimum delay between requests for one credential, e.g. 1s"},
+				{Name: "max_token_interval", Type: pluginapi.ConfigFieldTypeString, Description: "Upper bound of the per-credential request gap, e.g. 2s"},
+				{Name: "suspend_cooldown", Type: pluginapi.ConfigFieldTypeString, Description: "How long a credential Kiro reports as suspended stays out of rotation, e.g. 1h"},
 			},
 		},
 		Capabilities: registrationCapability{

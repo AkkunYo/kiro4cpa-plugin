@@ -44,6 +44,9 @@ type Credential struct {
 	Email          string `json:"email,omitempty"`
 	UserID         string `json:"userId,omitempty"`
 	StartURL       string `json:"startUrl,omitempty"`
+	// DisableCooling opts this credential out of the plugin's pacing and
+	// parking. CPA's own cooldown still applies.
+	DisableCooling bool `json:"disable_cooling,omitempty"`
 }
 
 func decodeFields(raw []byte) (map[string]any, error) {

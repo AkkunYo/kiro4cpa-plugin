@@ -14,6 +14,7 @@
 - 流式 / 非流式、extended thinking、tool use、图片输入（jpeg / png / gif / webp）
 - 通过 CPA QuotaProvider 查询 Kiro 用量额度
 - 上游错误按状态码交给 CPA：401 / 402 / 403 / 429 触发冷却和换号，5xx 报为可重试的 502
+- 按凭据限速，并记住 Kiro 报出的月度额度和账号暂停，避免反复打上游
 
 插件只实现 Claude Messages 执行器，OpenAI 格式由 CPA 自行转换。
 
@@ -50,6 +51,9 @@ make build-darwin        # 本机编译 bin/darwin/arm64/kiro4cpa.dylib（需要
          # client_version: 1.4.5       # User-Agent 中上报的 Kiro IDE 版本
          # os_version: darwin#24.6.0
          # node_version: 22.22.0
+         # min_token_interval: 1s
+         # max_token_interval: 2s
+         # suspend_cooldown: 1h
    ```
 
 3. 重启 CPA，日志中出现 `plugin registered plugin_id=kiro4cpa` 即加载成功。
@@ -100,6 +104,29 @@ GET /v0/management/plugins/kiro4cpa/quota?auth_index=<auth-index>
 ```
 
 管理面板能否展示额度，取决于面板是否支持插件 QuotaProvider。官方 [Cli-Proxy-API-Management-Center](https://github.com/router-for-me/Cli-Proxy-API-Management-Center) 支持；部分第三方面板只认内置 provider，不会显示。
+
+## 请求限速
+
+多账号场景下 CPA 自己会换号，但同一个凭据被并发打到 Kiro 时仍会触发上游限流。插件按凭据做节流，并把 Kiro 报出的持续性状态记下来，避免反复打上游：
+
+```yaml
+plugins:
+  configs:
+    kiro4cpa:
+      min_token_interval: 1s   # 同一凭据两次请求的最小间隔
+      max_token_interval: 2s   # 间隔上限，也是排队等待的上限
+      suspend_cooldown: 1h     # 被 Kiro 判定暂停后退出轮换的时长
+```
+
+行为说明：
+
+- 间隔在 `min_token_interval` 与 `max_token_interval` 之间随机取值，再叠加 ±30% 抖动，避免多实例同时发起
+- 并发请求在 `max_token_interval` 内排队；超过上限时返回 429，交给 CPA 换号，而不是无限等待
+- 上游返回 402（月度额度）时，该凭据退出轮换到下一个 UTC 零点
+- 上游返回 403 且带 `SUSPENDED` 或 `User is not authorized to make this call` 时，退出轮换 `suspend_cooldown`
+- 单个凭据文件加 `"disable_cooling": true` 可退出上述全部逻辑，CPA 自身的冷却不受影响
+
+凭据选择、换号和 429 退避仍由 CPA 负责，插件不重复实现。
 
 ## Web 登录授权
 

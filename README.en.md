@@ -14,6 +14,7 @@ A Kiro provider plugin for [CLIProxyAPI](https://github.com/router-for-me/CLIPro
 - Streaming / non-streaming, extended thinking, tool use, image input (jpeg / png / gif / webp)
 - Reports Kiro usage through CPA's QuotaProvider
 - Upstream errors go to CPA by status code: 401 / 402 / 403 / 429 trigger cooling and account switching, 5xx is reported as a retryable 502
+- Paces each credential and remembers the monthly limit and suspension Kiro reports, so it stops retrying the same account
 
 The plugin implements only the Claude Messages executor; CPA converts [OI] formats itself.
 
@@ -50,6 +51,9 @@ make build-darwin        # build bin/darwin/arm64/kiro4cpa.dylib locally (needs 
          # client_version: 1.4.5       # Kiro IDE version reported in the User-Agent
          # os_version: darwin#24.6.0
          # node_version: 22.22.0
+         # min_token_interval: 1s
+         # max_token_interval: 2s
+         # suspend_cooldown: 1h
    ```
 
 3. Restart CPA. `plugin registered plugin_id=kiro4cpa` in the log means it loaded.
@@ -100,6 +104,29 @@ GET /v0/management/plugins/kiro4cpa/quota?auth_index=<auth-index>
 ```
 
 Whether a panel shows the quota depends on whether it supports plugin QuotaProviders. The official [Cli-Proxy-API-Management-Center](https://github.com/router-for-me/Cli-Proxy-API-Management-Center) does; some third-party panels only know built-in providers and will not show it.
+
+## Request pacing
+
+CPA fails over between credentials on its own, but concurrent requests on one credential still trip Kiro's upstream limits. The plugin paces each credential and remembers the conditions Kiro reports that last longer than one request:
+
+```yaml
+plugins:
+  configs:
+    kiro4cpa:
+      min_token_interval: 1s   # minimum gap between two requests of one credential
+      max_token_interval: 2s   # upper bound of the gap, and of the queued wait
+      suspend_cooldown: 1h     # how long a suspended credential stays out of rotation
+```
+
+Behaviour:
+
+- The gap is drawn between `min_token_interval` and `max_token_interval` with ±30% jitter, so parallel instances do not fire together
+- Concurrent requests queue up to `max_token_interval`; anything past that is refused with 429 so CPA can fail over instead of waiting
+- A 402 (monthly limit) takes the credential out of rotation until the next UTC midnight
+- A 403 carrying `SUSPENDED` or `User is not authorized to make this call` takes it out for `suspend_cooldown`
+- A credential file with `"disable_cooling": true` opts out of all of the above; CPA's own cooldown still applies
+
+Credential selection, failover and the 429 backoff ladder remain CPA's job.
 
 ## Web sign-in
 
