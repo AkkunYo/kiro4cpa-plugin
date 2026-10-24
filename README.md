@@ -8,11 +8,15 @@
 
 ## 功能
 
+- 浏览器内选择登录方式：Builder ID、Google / GitHub、IAM Identity Center，或导入 Refresh Token / API Key
 - 凭据类型：Social（Google / GitHub）、IdC（Builder ID / IAM Identity Center）、External IdP（Entra ID 等）、API Key
+- 登录后读取账号邮箱，凭据文件按账号命名；同一账号再次登录会覆盖原文件，不会出现重复账号
 - 自动刷新 access token；请求遇到 token 失效时强制刷新一次并重试，刷新结果写回凭据文件
 - 刷新时从 Kiro 拉取账号可用的模型列表并缓存；拉取失败时使用内置列表
 - 流式 / 非流式、extended thinking、tool use、图片输入（jpeg / png / gif / webp）
-- 通过 CPA QuotaProvider 查询 Kiro 用量额度
+- 通过 CPA QuotaProvider 查询 Kiro 用量额度；免费试用和赠送额度只统计生效中的部分
+- 全局 `oauth-excluded-models` 对每个账号都生效，账号自己的禁用列表在此基础上追加
+- Kiro 以 403 `User is not authorized to make this call` 拒绝账号时，自动禁用该账号并写入备注
 - 上游错误按状态码交给 CPA：401 / 402 / 403 / 429 触发冷却和换号，5xx 报为可重试的 502
 - 按凭据限速，并记住 Kiro 报出的月度额度和账号暂停，避免反复打上游
 
@@ -32,7 +36,24 @@ make build-darwin        # 本机编译 bin/darwin/arm64/kiro4cpa.dylib（需要
 
 ## 安装
 
-1. 把编译产物放进 CPA 的插件目录（默认是 CPA 工作目录下的 `plugins/`），按平台分子目录：
+### 从插件商店安装
+
+在 CPA 管理面板的插件商店搜索 **Kiro OAuth**（ID `kiro4cpa`）安装即可，商店会按当前系统和架构下载对应的发布包。
+
+插件商店未收录时，可以在 CPA 的 `config.yaml` 里加上本仓库的商店源：
+
+```yaml
+plugins:
+  enabled: true
+  store-sources:
+    - "https://raw.githubusercontent.com/AkkunYo/kiro4cpa-plugin/main/registry.json"
+```
+
+### 手动安装
+
+从 [Releases](https://github.com/AkkunYo/kiro4cpa-plugin/releases) 下载对应平台的 `kiro4cpa_<版本>_<系统>_<架构>.zip`，按 `checksums.txt` 校验后解压。
+
+1. 把动态库放进 CPA 的插件目录（默认是 CPA 工作目录下的 `plugins/`），按平台分子目录：
 
    ```
    plugins/linux/amd64/kiro4cpa.so
@@ -58,9 +79,9 @@ make build-darwin        # 本机编译 bin/darwin/arm64/kiro4cpa.dylib（需要
 
 3. 重启 CPA，日志中出现 `plugin registered plugin_id=kiro4cpa` 即加载成功。
 
-## 导入凭据
+## 手动放置凭据文件
 
-每个账号在 CPA 的 `auth-dir` 下放一个 JSON 文件，顶层必须有 `"type": "kiro4cpa"`：
+一般直接用下方「Web 登录授权」里的登录或导入即可。需要批量迁移或脚本化时，也可以在 CPA 的 `auth-dir` 下为每个账号放一个 JSON 文件，顶层必须有 `"type": "kiro4cpa"`：
 
 ```json
 {
@@ -137,9 +158,19 @@ plugins:
 | Builder ID | AWS 设备授权。打开 AWS 页面输入邮箱，确认授权码 |
 | Google / GitHub | 打开 Kiro 登录页选择 Google 或 GitHub。登录后浏览器会跳到打不开的 `127.0.0.1:3128` 页面，把地址栏里的完整地址粘贴回登录页 |
 | IAM Identity Center | 填写 `https://<目录>.awsapps.com/start` 和 Region，再走 AWS 设备授权 |
-| 导入凭据 | Social 或 IdC 的 refreshToken，或 Kiro API Key |
+| 导入凭据 | 已有 Refresh Token 或 API Key 时直接导入，见下表 |
 
 完成后面板会自动拿到结果，由 CPA 保存凭据。
+
+「导入凭据」支持三种类型：
+
+| 凭据类型 | 需要填写 | 从哪里取 |
+|---|---|---|
+| Social Refresh Token（Google / GitHub） | Refresh Token、Region | Kiro IDE 或 kiro.rs 凭据里的 `refreshToken` |
+| IdC Refresh Token（Builder ID / 企业 SSO） | Refresh Token、Client ID、Client Secret、Region | AWS SSO 缓存（`~/.aws/sso/cache/`）里的 `refreshToken`，以及同目录 client 注册文件里的 `clientId`、`clientSecret` |
+| Kiro API Key | API Key | Kiro 后台生成的 API Key |
+
+Region 默认 `us-east-1`。导入时只校验必填字段；保存后会尝试刷新 token 并读取账号邮箱用于命名，刷新失败时仍会保存，凭据是否可用以面板里的账号状态为准。
 
 登录页的操作走 CPA 管理接口，需要管理密钥。如果面板登录时勾选了「记住密码」，并且面板和 CPA 用同一个地址打开，登录页会直接读取面板保存的密钥；否则会提示手动输入，输入的密钥不会保存。
 
@@ -147,7 +178,7 @@ plugins:
 
 ## 已知限制
 
-- 实际测试过的有 Social 账号与 Builder ID 设备流；IdC、External IdP、API Key 按协议实现
+- Builder ID、Google、GitHub 登录已实测；IAM Identity Center、External IdP、API Key 按协议实现
 - 发布产物覆盖 linux/amd64、linux/arm64、darwin/amd64、darwin/arm64、windows/amd64；实际跑通过的是 linux/amd64 与 darwin/arm64
 
 ## 致谢

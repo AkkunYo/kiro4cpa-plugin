@@ -8,11 +8,15 @@ A Kiro provider plugin for [CLIProxyAPI](https://github.com/router-for-me/CLIPro
 
 ## Features
 
+- Pick a sign-in method in the browser: Builder ID, Google / GitHub, IAM Identity Center, or import a refresh token / API key
 - Credential types: Social (Google / GitHub), IdC (Builder ID / IAM Identity Center), External IdP (Entra ID and similar), API Key
+- Reads the account email after sign-in and names the credential file after the account; signing in to the same account again overwrites that file instead of adding a duplicate
 - Refreshes the access token automatically; on an auth failure a request forces one refresh and retries, and the result is written back to the credential file
 - Pulls the account's available model list from Kiro on refresh and caches it; falls back to the built-in list when the pull fails
 - Streaming / non-streaming, extended thinking, tool use, image input (jpeg / png / gif / webp)
-- Reports Kiro usage through CPA's QuotaProvider
+- Reports Kiro usage through CPA's QuotaProvider; free-trial and bonus credit count only while active
+- The global `oauth-excluded-models` list applies to every account; an account's own list adds to it
+- An account Kiro rejects with 403 `User is not authorized to make this call` is disabled automatically, with the reason in its note
 - Upstream errors go to CPA by status code: 401 / 402 / 403 / 429 trigger cooling and account switching, 5xx is reported as a retryable 502
 - Paces each credential and remembers the monthly limit and suspension Kiro reports, so it stops retrying the same account
 
@@ -32,7 +36,24 @@ make build-darwin        # build bin/darwin/arm64/kiro4cpa.dylib locally (needs 
 
 ## Install
 
-1. Put the built library in CPA's plugin directory (by default `plugins/` under CPA's working directory), in a per-platform subdirectory:
+### From the plugin store
+
+Search for **Kiro OAuth** (ID `kiro4cpa`) in the CPA management panel's plugin store and install it; the store downloads the package for the current OS and architecture.
+
+If the store does not list it yet, add this repository as a store source in CPA's `config.yaml`:
+
+```yaml
+plugins:
+  enabled: true
+  store-sources:
+    - "https://raw.githubusercontent.com/AkkunYo/kiro4cpa-plugin/main/registry.json"
+```
+
+### Manual install
+
+Download `kiro4cpa_<version>_<os>_<arch>.zip` for your platform from [Releases](https://github.com/AkkunYo/kiro4cpa-plugin/releases), verify it against `checksums.txt`, and unzip it.
+
+1. Put the library in CPA's plugin directory (by default `plugins/` under CPA's working directory), in a per-platform subdirectory:
 
    ```
    plugins/linux/amd64/kiro4cpa.so
@@ -58,9 +79,9 @@ make build-darwin        # build bin/darwin/arm64/kiro4cpa.dylib locally (needs 
 
 3. Restart CPA. `plugin registered plugin_id=kiro4cpa` in the log means it loaded.
 
-## Importing credentials
+## Placing credential files by hand
 
-Each account is one JSON file in CPA's `auth-dir`, with `"type": "kiro4cpa"` at the top level:
+Signing in or importing through the web sign-in page below is usually simpler. For bulk migration or scripting, each account can also be one JSON file in CPA's `auth-dir`, with `"type": "kiro4cpa"` at the top level:
 
 ```json
 {
@@ -137,9 +158,19 @@ On the panel's sign-in page, clicking the Kiro login opens the plugin's sign-in 
 | Builder ID | AWS device authorization. Open the AWS page, enter the email, confirm the code |
 | Google / GitHub | Open the Kiro sign-in page and choose Google or GitHub. After signing in the browser lands on an unreachable `127.0.0.1:3128` page; paste the full address back into the sign-in page |
 | IAM Identity Center | Enter `https://<directory>.awsapps.com/start` and the region, then follow AWS device authorization |
-| Import credentials | A Social or IdC refreshToken, or a Kiro API Key |
+| Import credentials | Import an existing refresh token or API key directly, see below |
 
 The panel picks up the result automatically and CPA saves the credential.
+
+Import credentials accepts three types:
+
+| Credential type | Fields | Where to find them |
+|---|---|---|
+| Social Refresh Token (Google / GitHub) | Refresh Token, Region | `refreshToken` in a Kiro IDE or kiro.rs credential |
+| IdC Refresh Token (Builder ID / enterprise SSO) | Refresh Token, Client ID, Client Secret, Region | `refreshToken` in the AWS SSO cache (`~/.aws/sso/cache/`), and `clientId` / `clientSecret` from the client registration file in the same directory |
+| Kiro API Key | API Key | An API key generated in the Kiro console |
+
+Region defaults to `us-east-1`. Import checks only the required fields; after saving, the plugin tries to refresh the token and read the account email for the file name. A failed refresh still saves the file, so the account status in the panel is what tells whether the credential works.
 
 The sign-in page talks to CPA's management API and needs the management key. If "Remember password" was ticked when signing into the panel and both are opened from the same address, the page reads the key the panel saved; otherwise it asks for it and does not store it.
 
@@ -147,7 +178,7 @@ Credential files are named `kiro4cpa-<method>-<email>.json`, for example `kiro4c
 
 ## Known limitations
 
-- Social accounts and the Builder ID device flow are the ones actually tested; IdC, External IdP and API Key are implemented to spec
+- Builder ID, Google and GitHub sign-in are tested end to end; IAM Identity Center, External IdP and API Key are implemented to spec
 - Released binaries cover linux/amd64, linux/arm64, darwin/amd64, darwin/arm64 and windows/amd64; only linux/amd64 and darwin/arm64 have been exercised end to end
 
 ## Acknowledgements

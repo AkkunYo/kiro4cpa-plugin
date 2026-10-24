@@ -46,9 +46,10 @@ var limiter = newRateLimiter()
 func newRateLimiter() *rateLimiter {
 	return &rateLimiter{
 		states: make(map[string]*credentialState),
-		rng:    rand.New(rand.NewSource(time.Now().UnixNano())),
-		now:    time.Now,
-		sleep:  time.Sleep,
+		// Only jitters request gaps; nothing security-relevant depends on it.
+		rng:   rand.New(rand.NewSource(time.Now().UnixNano())), // #nosec G404
+		now:   time.Now,
+		sleep: time.Sleep,
 	}
 }
 

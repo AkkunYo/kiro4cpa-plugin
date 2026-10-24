@@ -128,12 +128,14 @@ func headerValue(typ byte, v []byte) any {
 		return false
 	case 2:
 		return int8(v[0])
+	// The event stream encoding stores signed integers as two's complement, so
+	// reinterpreting the unsigned bytes is the decoding, not an overflow.
 	case 3:
-		return int16(binary.BigEndian.Uint16(v))
+		return int16(binary.BigEndian.Uint16(v)) // #nosec G115
 	case 4:
-		return int32(binary.BigEndian.Uint32(v))
+		return int32(binary.BigEndian.Uint32(v)) // #nosec G115
 	case 5, 8:
-		return int64(binary.BigEndian.Uint64(v))
+		return int64(binary.BigEndian.Uint64(v)) // #nosec G115
 	case 6:
 		return append([]byte(nil), v[2:]...)
 	case 7:
