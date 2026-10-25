@@ -34,6 +34,8 @@ make build-darwin        # build bin/darwin/arm64/kiro4cpa.dylib locally (needs 
 
 `build-linux-docker` cross-compiles with `gcc-x86-64-linux-gnu` inside `golang:1.26-bookworm`; the result requires glibc ≥ 2.34.
 
+The library file name decides the plugin ID and version CPA registers, so deploy it as `kiro4cpa-v<version>.so` (or `.dylib` / `.dll`). A bare `kiro4cpa.so` registers the plugin ID `kiro4cpa` without a version. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development, testing and release flow.
+
 ## Install
 
 ### From the plugin store

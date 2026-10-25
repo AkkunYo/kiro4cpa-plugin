@@ -34,6 +34,8 @@ make build-darwin        # 本机编译 bin/darwin/arm64/kiro4cpa.dylib（需要
 
 `build-linux-docker` 在 `golang:1.26-bookworm` 中用 `gcc-x86-64-linux-gnu` 交叉编译，产物要求 glibc ≥ 2.34。
 
+部署到 CPA 时，动态库文件名决定插件 ID 和版本：必须是 `kiro4cpa-v<版本>.so`（或 `.dylib` / `.dll`），命名成 `kiro4cpa.so` 会让宿主注册成不带版本的 `kiro4cpa`。开发、测试和发布流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。
+
 ## 安装
 
 ### 从插件商店安装
