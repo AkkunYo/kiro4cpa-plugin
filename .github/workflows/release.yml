@@ -111,17 +111,6 @@ jobs:
             echo "## What's Changed"
             echo ""
             git log "$RANGE" --pretty=format:"- %s"
-            echo ""
-            echo ""
-            if [ -n "$PREV_TAG" ]; then
-              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${GITHUB_REF_NAME}"
-              echo ""
-            fi
-            echo "## SHA256 Checksums"
-            echo ""
-            echo '```'
-            cat dist/checksums.txt
-            echo '```'
           } > dist/release_notes.md
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
