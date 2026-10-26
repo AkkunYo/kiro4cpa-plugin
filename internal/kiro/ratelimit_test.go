@@ -93,22 +93,29 @@ func TestAdmitCredentialIsolatesCredentials(t *testing.T) {
 }
 
 func TestAdmitCredentialFailsOverInsteadOfQueueingForever(t *testing.T) {
-	newFakeClock().concurrent().install(t)
+	clock := newFakeClock().concurrent().install(t)
 	cfg := pacingConfig("1s", "2s", "1h")
 
 	// Concurrent requests reserve their slots before sleeping, so a burst
 	// stacks up; one that would wait past max_token_interval is refused
 	// instead of stalling CPA.
 	var refused error
-	for i := 0; i < 4; i++ {
+	for i := 0; i < 10; i++ {
 		if err := admitCredential("a.json", Credential{}, cfg); err != nil {
 			refused = err
-			break
 		}
 	}
 	up, ok := refused.(*UpstreamError)
 	if !ok || up.Kind != ErrRateLimited || up.Status != http.StatusTooManyRequests {
 		t.Fatalf("burst was never refused: %v", refused)
+	}
+
+	// Refused requests must NOT push nextSlot out into the future; once the
+	// active window clears, subsequent requests must succeed without artificial starvation.
+	clock.advance = true
+	clock.now = clock.now.Add(3 * time.Second)
+	if err := admitCredential("a.json", Credential{}, cfg); err != nil {
+		t.Fatalf("subsequent request was blocked by phantom slots: %v", err)
 	}
 }
 

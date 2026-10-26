@@ -111,19 +111,20 @@ func admitCredential(authID string, cred Credential, cfg config.PluginConfig) er
 	if slot.Before(now) {
 		slot = now
 	}
-	st.nextSlot = slot.Add(rl.interval(pacing))
-	rl.mu.Unlock()
-
 	wait := slot.Sub(now)
-	if wait <= 0 {
-		return nil
-	}
 	if wait > pacing.MaxTokenInterval {
+		rl.mu.Unlock()
 		return &UpstreamError{
 			Status: http.StatusTooManyRequests,
 			Kind:   ErrRateLimited,
 			Body:   fmt.Sprintf("credential %s is paced for another %v", authID, wait),
 		}
+	}
+	st.nextSlot = slot.Add(rl.interval(pacing))
+	rl.mu.Unlock()
+
+	if wait <= 0 {
+		return nil
 	}
 	rl.sleep(wait)
 	return nil

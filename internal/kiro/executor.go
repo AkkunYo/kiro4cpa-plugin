@@ -150,6 +150,9 @@ func postGenerate(authID, callbackID string, cred Credential, conv convertedRequ
 func persistCredential(req executorRPC, cred Credential) {
 	name := filepath.Base(req.AuthAttributes["path"])
 	if name == "." || name == "/" {
+		name = filepath.Base(req.AuthID)
+	}
+	if name == "." || name == "/" || name == "" {
 		return
 	}
 	fields, err := decodeFields(req.StorageJSON)

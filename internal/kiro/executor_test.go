@@ -206,3 +206,29 @@ func TestCountTokens(t *testing.T) {
 		t.Fatalf("payload %s", resp.Payload)
 	}
 }
+
+func TestPersistCredentialFallsBackToAuthID(t *testing.T) {
+	var savedName string
+	var savedData []byte
+	oldSave := hostAuthSave
+	hostAuthSave = func(name string, raw []byte) error {
+		savedName = name
+		savedData = raw
+		return nil
+	}
+	defer func() { hostAuthSave = oldSave }()
+
+	req := executorRPC{
+		ExecutorRequest: pluginapi.ExecutorRequest{
+			AuthID:      "kiro4cpa-google-user@example.com.json",
+			StorageJSON: []byte(`{"type":"kiro4cpa","refreshToken":"old-rt"}`),
+		},
+	}
+	persistCredential(req, Credential{RefreshToken: "new-rt"})
+	if savedName != "kiro4cpa-google-user@example.com.json" {
+		t.Fatalf("savedName = %q, want AuthID fallback", savedName)
+	}
+	if !strings.Contains(string(savedData), `"refreshToken":"new-rt"`) {
+		t.Fatalf("savedData = %s, missing new token", savedData)
+	}
+}
