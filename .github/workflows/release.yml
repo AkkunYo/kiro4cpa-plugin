@@ -78,10 +78,13 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - uses: actions/download-artifact@v4
         with:
           path: artifacts
-      - name: Package store archives
+      - name: Package store archives and generate release notes
         run: |
           set -euo pipefail
           VERSION="${GITHUB_REF_NAME#v}"
@@ -95,9 +98,35 @@ jobs:
           done
           cd dist
           sha256sum *.zip > checksums.txt
-          cat checksums.txt
+          cd ..
+
+          PREV_TAG=$(git describe --tags --abbrev=0 "${GITHUB_REF_NAME}^" 2>/dev/null || true)
+          if [ -n "$PREV_TAG" ]; then
+            RANGE="${PREV_TAG}..${GITHUB_REF_NAME}"
+          else
+            RANGE="${GITHUB_REF_NAME}"
+          fi
+
+          {
+            echo "## What's Changed"
+            echo ""
+            git log "$RANGE" --pretty=format:"- %s"
+            echo ""
+            echo ""
+            if [ -n "$PREV_TAG" ]; then
+              echo "**Full Changelog**: https://github.com/${GITHUB_REPOSITORY}/compare/${PREV_TAG}...${GITHUB_REF_NAME}"
+              echo ""
+            fi
+            echo "## SHA256 Checksums"
+            echo ""
+            echo '```'
+            cat dist/checksums.txt
+            echo '```'
+          } > dist/release_notes.md
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
-          generate_release_notes: true
+          files: |
+            dist/*.zip
+            dist/checksums.txt
+          body_path: dist/release_notes.md
