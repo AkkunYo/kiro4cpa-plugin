@@ -62,6 +62,30 @@ func TestQuotaFetchUpstreamError(t *testing.T) {
 	}
 }
 
+func TestQuotaFetchRefreshesRejectedToken(t *testing.T) {
+	var saved string
+	origSave := hostAuthSave
+	hostAuthSave = func(name string, _ []byte) error { saved = name; return nil }
+	t.Cleanup(func() { hostAuthSave = origSave })
+	refreshCalls := 0
+	stubHTTP(t, func(r hostapi.HTTPRequest) (*hostapi.HTTPResponse, error) {
+		if strings.Contains(r.URL, "refreshToken") {
+			refreshCalls++
+			return ok(`{"accessToken":"fresh","expiresIn":3600}`)
+		}
+		if r.Headers["Authorization"][0] != "Bearer fresh" {
+			return &hostapi.HTTPResponse{StatusCode: 401, Body: []byte("expired")}, nil
+		}
+		return ok(usageLimitsBody)
+	})
+	req := quotaRequest()
+	req.Attributes = map[string]string{"path": "/auth/kiro.json"}
+	resp := callHandler[pluginapi.QuotaFetchResponse](t, pluginabi.MethodQuotaFetch, req)
+	if refreshCalls != 1 || saved != "kiro.json" || resp.Subscription == nil || resp.Subscription.Plan != "KIRO FREE" {
+		t.Fatalf("refreshCalls=%d saved=%q resp=%+v", refreshCalls, saved, resp)
+	}
+}
+
 func TestQuotaFetchRetriesWithoutProfileARN(t *testing.T) {
 	calls := 0
 	stubHTTP(t, func(r hostapi.HTTPRequest) (*hostapi.HTTPResponse, error) {

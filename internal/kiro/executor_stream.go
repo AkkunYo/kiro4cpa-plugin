@@ -20,7 +20,7 @@ func handleExecuteStream(request []byte) ([]byte, error) {
 	if req.StreamID == "" {
 		return wire.ErrorStatus("invalid_request", "missing stream_id", http.StatusBadRequest, false), nil
 	}
-	upstream, err := withRefresh(req, cred, func(c Credential) (string, error) {
+	upstream, err := withRefresh(req.refreshTarget(), cred, func(c Credential) (string, error) {
 		return openGenerateStream(req.AuthID, req.HostCallbackID, c, conv, config.Get())
 	})
 	if err != nil {

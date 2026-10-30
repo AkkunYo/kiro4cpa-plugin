@@ -54,7 +54,7 @@ func handleExecute(request []byte) ([]byte, error) {
 	if err != nil || errEnv != nil {
 		return errEnv, err
 	}
-	resp, err := withRefresh(req, cred, func(c Credential) (*hostapi.HTTPResponse, error) {
+	resp, err := withRefresh(req.refreshTarget(), cred, func(c Credential) (*hostapi.HTTPResponse, error) {
 		return postGenerate(req.AuthID, req.HostCallbackID, c, conv, config.Get())
 	})
 	if err != nil {
@@ -89,20 +89,39 @@ func handleCountTokens(request []byte) ([]byte, error) {
 	return wire.OK(pluginapi.ExecutorResponse{Payload: payload}), nil
 }
 
+// refreshTarget is what a request carries for refreshing its credential and
+// writing the result back to the auth file.
+type refreshTarget struct {
+	authID      string
+	path        string
+	callbackID  string
+	storageJSON []byte
+}
+
+func (r executorRPC) refreshTarget() refreshTarget {
+	return refreshTarget{authID: r.AuthID, path: r.AuthAttributes["path"], callbackID: r.HostCallbackID, storageJSON: r.StorageJSON}
+}
+
 // withRefresh runs send and, when the bearer token is rejected, forces one refresh
 // and retries. CPA only cools a 401'd credential down, so without this a
 // single-account setup would be unusable until the next scheduled refresh.
-func withRefresh[T any](req executorRPC, cred Credential, send func(Credential) (T, error)) (T, error) {
+// Concurrent rejections of one credential share a single refresh.
+func withRefresh[T any](target refreshTarget, cred Credential, send func(Credential) (T, error)) (T, error) {
 	resp, err := send(cred)
 	var up *UpstreamError
 	if !errors.As(err, &up) || up.Kind != ErrTokenInvalid || cred.AuthMethod == AuthMethodAPIKey {
 		return resp, err
 	}
-	refreshed, errRefresh := refreshCredential(cred, config.Get(), req.HostCallbackID, time.Now())
+	refreshed, errRefresh := sharedRefresh(target.authID, cred, func(c Credential) (Credential, error) {
+		fresh, errFresh := refreshCredential(c, config.Get(), target.callbackID, time.Now())
+		if errFresh == nil {
+			persistCredential(target, fresh)
+		}
+		return fresh, errFresh
+	})
 	if errRefresh != nil {
 		return resp, err
 	}
-	persistCredential(req, refreshed)
 	return send(refreshed)
 }
 
@@ -147,15 +166,15 @@ func postGenerate(authID, callbackID string, cred Credential, conv convertedRequ
 
 // persistCredential writes a refreshed token back so a rotated refresh token is
 // not lost. A failure only costs a later refresh, so it does not fail the request.
-func persistCredential(req executorRPC, cred Credential) {
-	name := filepath.Base(req.AuthAttributes["path"])
+func persistCredential(target refreshTarget, cred Credential) {
+	name := filepath.Base(target.path)
 	if name == "." || name == "/" {
-		name = filepath.Base(req.AuthID)
+		name = filepath.Base(target.authID)
 	}
 	if name == "." || name == "/" || name == "" {
 		return
 	}
-	fields, err := decodeFields(req.StorageJSON)
+	fields, err := decodeFields(target.storageJSON)
 	if err == nil {
 		var raw []byte
 		if raw, err = mergeCredential(fields, cred); err == nil {
@@ -163,7 +182,7 @@ func persistCredential(req executorRPC, cred Credential) {
 		}
 	}
 	if err != nil {
-		log.Printf("kiro4cpa: persisting refreshed token for %s failed: %v", req.AuthID, err)
+		log.Printf("kiro4cpa: persisting refreshed token for %s failed: %v", target.authID, err)
 	}
 }
 

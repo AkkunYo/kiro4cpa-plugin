@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -36,13 +37,31 @@ func resetLimiter(t *testing.T) {
 	})
 }
 
+// resetRefreshes forgets shared refresh results. Tests reuse one auth ID and
+// one stored credential, so a refresh in one would otherwise answer the next.
+func resetRefreshes(t *testing.T) {
+	t.Helper()
+	clear := func() {
+		refreshes.mu.Lock()
+		refreshes.inflight = map[refreshKey]*refreshCall{}
+		refreshes.latest = map[string]refreshResult{}
+		refreshes.mu.Unlock()
+	}
+	clear()
+	t.Cleanup(clear)
+}
+
 func stubHTTP(t *testing.T, fn func(hostapi.HTTPRequest) (*hostapi.HTTPResponse, error)) *[]hostapi.HTTPRequest {
 	t.Helper()
 	resetLimiter(t)
+	resetRefreshes(t)
+	var mu sync.Mutex
 	var seen []hostapi.HTTPRequest
 	orig := hostHTTPDo
 	hostHTTPDo = func(r hostapi.HTTPRequest) (*hostapi.HTTPResponse, error) {
+		mu.Lock()
 		seen = append(seen, r)
+		mu.Unlock()
 		return fn(r)
 	}
 	t.Cleanup(func() { hostHTTPDo = orig })

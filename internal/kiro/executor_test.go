@@ -224,7 +224,7 @@ func TestPersistCredentialFallsBackToAuthID(t *testing.T) {
 			StorageJSON: []byte(`{"type":"kiro4cpa","refreshToken":"old-rt"}`),
 		},
 	}
-	persistCredential(req, Credential{RefreshToken: "new-rt"})
+	persistCredential(req.refreshTarget(), Credential{RefreshToken: "new-rt"})
 	if savedName != "kiro4cpa-google-user@example.com.json" {
 		t.Fatalf("savedName = %q, want AuthID fallback", savedName)
 	}

@@ -2,6 +2,7 @@ package kiro
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -60,6 +61,12 @@ func handleQuotaDescribe() ([]byte, error) {
 	return wire.OK(pluginapi.QuotaDescribeResponse{SupportedProviders: []string{models.ProviderName}, DisplayName: "Kiro"}), nil
 }
 
+func (r quotaFetchRPC) refreshTarget() refreshTarget {
+	return refreshTarget{authID: r.AuthID, path: r.Attributes["path"], callbackID: r.HostCallbackID, storageJSON: r.StorageJSON}
+}
+
+// handleQuotaFetch refreshes a rejected token like the executor does, so the
+// panel shows quota between scheduled refreshes too.
 func handleQuotaFetch(request []byte) ([]byte, error) {
 	var req quotaFetchRPC
 	if err := json.Unmarshal(request, &req); err != nil {
@@ -69,8 +76,22 @@ func handleQuotaFetch(request []byte) ([]byte, error) {
 	if err != nil {
 		return wire.ErrorStatus("invalid_credential", err.Error(), http.StatusUnauthorized, false), nil
 	}
+	body, err := withRefresh(req.refreshTarget(), cred, func(c Credential) ([]byte, error) {
+		return fetchUsageLimits(c, config.Get(), req.HostCallbackID)
+	})
+	if err != nil {
+		return upstreamErrorEnvelope(err), nil
+	}
+	var limits usageLimits
+	if err := json.Unmarshal(body, &limits); err != nil {
+		return wire.ErrorStatus("upstream_error", "decode kiro usage limits: "+err.Error(), http.StatusBadGateway, true), nil
+	}
+	return wire.OK(quotaResponse(limits)), nil
+}
 
-	cfg := config.Get()
+// fetchUsageLimits tries each region, with and without the profile ARN, and
+// returns the first successful getUsageLimits body.
+func fetchUsageLimits(cred Credential, cfg config.PluginConfig, callbackID string) ([]byte, error) {
 	headers := runtimeHeaders(cred, cfg)
 	regions := restRegionCandidates(cred)
 
@@ -90,7 +111,7 @@ func handleQuotaFetch(request []byte) ([]byte, error) {
 	var lastErr error
 	for idx, att := range attempts {
 		resp, err := hostHTTPDo(hostapi.HTTPRequest{
-			HostCallbackID: req.HostCallbackID,
+			HostCallbackID: callbackID,
 			Method:         http.MethodGet,
 			URL:            usageLimitsURLWith(cred, att.region, att.profileArn),
 			Headers:        headers,
@@ -100,11 +121,7 @@ func handleQuotaFetch(request []byte) ([]byte, error) {
 			continue
 		}
 		if resp.StatusCode == http.StatusOK {
-			var limits usageLimits
-			if err := json.Unmarshal(resp.Body, &limits); err != nil {
-				return wire.ErrorStatus("upstream_error", "decode kiro usage limits: "+err.Error(), http.StatusBadGateway, true), nil
-			}
-			return wire.OK(quotaResponse(limits)), nil
+			return resp.Body, nil
 		}
 
 		lastResp = resp
@@ -120,12 +137,12 @@ func handleQuotaFetch(request []byte) ([]byte, error) {
 	}
 
 	if lastResp != nil {
-		return upstreamErrorEnvelope(classifyUpstream(lastResp.StatusCode, lastResp.Body)), nil
+		return nil, classifyUpstream(lastResp.StatusCode, lastResp.Body)
 	}
 	if lastErr != nil {
-		return upstreamErrorEnvelope(lastErr), nil
+		return nil, lastErr
 	}
-	return wire.ErrorStatus("upstream_unavailable", "no available quota endpoint", http.StatusBadGateway, true), nil
+	return nil, errors.New("no available quota endpoint")
 }
 
 func usageLimitsURL(c Credential) string {
