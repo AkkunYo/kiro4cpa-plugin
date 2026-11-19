@@ -3,6 +3,8 @@ package kiro
 import (
 	"encoding/json"
 	"fmt"
+	"log"
+	"sync"
 )
 
 type AssistantResponseEvent struct {
@@ -93,14 +95,43 @@ func DecodeEvent(f Frame) (Event, error) {
 	case "meteringEvent":
 		ev.Metering = &MeteringEvent{}
 		target = ev.Metering
-	case "metadataEvent":
+	case "metadataEvent", "messageMetadataEvent":
+		// Amazon Q has been observed emitting the token usage frame under both
+		// names with the same tokenUsage payload. Accepting only metadataEvent
+		// silently dropped every real count and forced usage back to a local
+		// estimate, so cache_read/cache_creation always reported zero.
 		ev.Metadata = &MetadataEvent{}
 		target = ev.Metadata
 	default:
+		debugUnknownEvent(f.EventType())
 		return Event{}, nil
 	}
 	if err := json.Unmarshal(f.Payload, target); err != nil {
 		return Event{}, fmt.Errorf("decode %s: %w", f.EventType(), err)
 	}
 	return ev, nil
+}
+
+// loggedEventTypes remembers the unrecognized frame names already reported, so a
+// long stream reports each name once instead of once per frame. Upstream adds
+// event types over time; naming them makes a dropped usage frame diagnosable
+// instead of invisible.
+var (
+	loggedEventTypesMu sync.Mutex
+	loggedEventTypes   = make(map[string]struct{})
+)
+
+func debugUnknownEvent(eventType string) {
+	if eventType == "" {
+		return
+	}
+	loggedEventTypesMu.Lock()
+	_, seen := loggedEventTypes[eventType]
+	if !seen && len(loggedEventTypes) < 32 {
+		loggedEventTypes[eventType] = struct{}{}
+	}
+	loggedEventTypesMu.Unlock()
+	if !seen {
+		log.Printf("kiro4cpa: ignoring unknown upstream event type %q", eventType)
+	}
 }
